@@ -2,7 +2,7 @@
 
 Reads games.json written by fetch_playeggball_replays.py. A player counts in a game only if they were
 still in it at the end ("finished"); leavers are left out. Someone who switched teams counts for the
-team they finished on. Guests (no account) aren't ranked players, so they're left out. The page gets
+team they finished on. Guests (no account) are matched by name. The page gets
 one row per game and does the counting itself, so its filters (dates, minimum games, name) can recount everything.
 
 usage: playeggball_with_against.py [data_dir]   (default ~/tagpro-analytics/data/playeggball)
@@ -17,7 +17,7 @@ games = json.load(open(os.path.join(DIR, "games.json")))
 
 def key(p):
     name = MERGE.get(p["name"], p["name"])
-    if name in MERGE.values():
+    if name in MERGE.values() or p["account"] is None:
         return "name:" + name
     return p["account"]
 
@@ -27,7 +27,7 @@ rows = []    # [at, winner "red"/"blue", red player indexes, blue player indexes
 for g in sorted(games, key=lambda g: g["at"]):
     final = {}
     for p in g["players"]:
-        if not p["finished"] or p["account"] is None:
+        if not p["finished"]:
             continue
         k = key(p)
         if k not in index:
@@ -81,7 +81,7 @@ const $ = (id) => document.getElementById(id);
 const day = (t) => new Date(t).toLocaleDateString();
 const first = DATA.games[0][0], last = DATA.games[DATA.games.length - 1][0];
 $('about').textContent = DATA.games.length + ' ranked games on playeggball.com, ' + day(first) + ' to ' + day(last) +
-  '. Wins and losses in the With and Against tables are the selected player\\'s. Only ranked players (no guests) still in the game at the end count. ' +
+  '. Wins and losses in the With and Against tables are the selected player\\'s. Only players still in the game at the end count. ' +
   'Click a column heading to sort by it; click it again to reverse.';
 
 const COLS = ['Player', 'Games', 'Wins', 'Losses', 'Win %'];
