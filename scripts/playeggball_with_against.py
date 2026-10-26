@@ -57,6 +57,10 @@ caption { font-weight: bold; text-align: left; padding: 4px 0; }
 #with-table td { background: #f0f9f0; }
 #against-table th { background: #f2bcbc; }
 #against-table td { background: #fdf0f0; }
+#best-with-table th, #worst-with-table th { background: #bfe3bf; cursor: default; position: static; }
+#best-with-table td, #worst-with-table td { background: #f0f9f0; }
+#best-against-table th, #worst-against-table th { background: #f2bcbc; cursor: default; position: static; }
+#best-against-table td, #worst-against-table td { background: #fdf0f0; }
 th, td { border: 1px solid #ccc; padding: 3px 8px; text-align: right; }
 th:first-child, td:first-child { text-align: left; }
 th { cursor: pointer; background: #eee; user-select: none; white-space: nowrap; position: sticky; top: var(--bar-height, 0); }
@@ -76,6 +80,12 @@ td a { cursor: pointer; color: #06c; }
 <p id="filter-summary"></p>
 <p><label>Player <select id="player-select"></select></label></p>
 <div id="context-bar"><span id="context-player"></span> <span id="player-record"></span><br><span id="context-filters"></span></div>
+<p id="best-worst-about"></p>
+<table id="best-with-table"><thead></thead><tbody></tbody></table>
+<table id="worst-with-table"><thead></thead><tbody></tbody></table>
+<table id="best-against-table"><thead></thead><tbody></tbody></table>
+<table id="worst-against-table"><thead></thead><tbody></tbody></table>
+<br>
 <table id="with-table"><caption></caption><thead></thead><tbody></tbody></table>
 <table id="against-table"><caption></caption><thead></thead><tbody></tbody></table>
 <br>
@@ -131,6 +141,22 @@ function fill(id, rows, linkNames) {
     : '<tr><td colspan="5">No one matches the filters</td></tr>';
 }
 
+// Best/worst lists rank by a Wilson 95% score interval instead of the raw win %, so few games count for little:
+// best = highest low end (1-0 scores 21%, 8-2 scores 49%), worst = lowest high end.
+const BEST_WORST_SIZE = 5, BEST_WORST_MIN_GAMES = 3, Z = 1.96;
+function wilson(w, n, side) {
+  const p = w / n, mid = p + Z * Z / (2 * n), spread = Z * Math.sqrt(p * (1 - p) / n + Z * Z / (4 * n * n));
+  return (mid + side * spread) / (1 + Z * Z / n);
+}
+function fillBestWorst(id, heading, rows, best) {
+  const t = $(id);
+  t.tHead.innerHTML = '<tr><th>' + esc(heading) + '</th><th>Games</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>';
+  const r = rows.map(([p, w, l]) => [p, w, l, wilson(w, w + l, best ? -1 : 1)])
+    .sort((a, b) => best ? b[3] - a[3] : a[3] - b[3]).slice(0, BEST_WORST_SIZE);
+  t.tBodies[0].innerHTML = r.length ? r.map(([p, w, l]) => '<tr><td>' + esc(DATA.players[p]) + '</td><td>' + (w + l) + '</td><td>' + w + '</td><td>' + l + '</td><td>' + pct(w, l) + '</td></tr>').join('')
+    : '<tr><td colspan="5">No one with ' + BEST_WORST_MIN_GAMES + '+ games</td></tr>';
+}
+
 function show() {
   const games = filteredGames();
   const { total, withs, against } = count(games);
@@ -164,6 +190,14 @@ function show() {
     const [w, l] = total.get(selected);
     $('player-record').textContent = w + ' wins, ' + l + ' losses (' + pct(w, l) + ')';
   } else $('player-record').textContent = 'No games match the filters';
+  const bwMin = Math.max(min, BEST_WORST_MIN_GAMES);
+  $('best-worst-about').textContent = 'Best and worst: ranked by win % and games together, so a 1-0 cannot top a 9-2. ' +
+    'Only pairs with ' + bwMin + '+ games. (Score: Wilson 95% interval, low end for best, high end for worst.)';
+  const bw = (m) => selected === null ? [] : pairs(m).filter(([, w, l]) => w + l >= bwMin);
+  fillBestWorst('best-with-table', 'BEST WITH ' + who, bw(withs), true);
+  fillBestWorst('worst-with-table', 'WORST WITH ' + who, bw(withs), false);
+  fillBestWorst('best-against-table', 'BEST AGAINST ' + who, bw(against), true);
+  fillBestWorst('worst-against-table', 'WORST AGAINST ' + who, bw(against), false);
   fill('with-table', selected === null ? [] : pairs(withs));
   fill('against-table', selected === null ? [] : pairs(against));
   document.documentElement.style.setProperty('--bar-height', $('context-bar').offsetHeight + 'px');
