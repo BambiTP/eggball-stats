@@ -90,7 +90,7 @@ $('about').textContent = DATA.games.length + ' ranked games on playeggball.com, 
   'Click a column heading to sort by it; click it again to reverse.';
 
 const COLS = ['Player', 'Games', 'Wins', 'Losses', 'Win %'];
-const FIRST_COL = { 'with-table': () => 'WITH ' + DATA.players[selected] + ': teammate', 'against-table': () => 'AGAINST ' + DATA.players[selected] + ': opponent', 'all-players-table': () => 'Player' };
+const FIRST_COL = { 'with-table': () => 'WITH ' + (DATA.players[selected] || '') + ': teammate', 'against-table': () => 'AGAINST ' + (DATA.players[selected] || '') + ': opponent', 'all-players-table': () => 'Player' };
 const sorts = { 'with-table': [1, -1], 'against-table': [1, -1], 'all-players-table': [1, -1] };  // [column, 1 up / -1 down]
 let selected = null;
 
