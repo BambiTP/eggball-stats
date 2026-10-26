@@ -2,8 +2,8 @@
 
 Reads games.json written by fetch_playeggball_replays.py. A player counts in a game only if they were
 still in it at the end ("finished"); leavers are left out. Someone who switched teams counts for the
-team they finished on. The page gets one row per game and does the counting itself, so its filters
-(map, dates, minimum games, name) can recount everything.
+team they finished on. Guests (no account) aren't ranked players, so they're left out. The page gets
+one row per game and does the counting itself, so its filters (dates, minimum games, name) can recount everything.
 
 usage: playeggball_with_against.py [data_dir]   (default ~/tagpro-analytics/data/playeggball)
 """
@@ -17,18 +17,17 @@ games = json.load(open(os.path.join(DIR, "games.json")))
 
 def key(p):
     name = MERGE.get(p["name"], p["name"])
-    if name in MERGE.values() or p["account"] is None:
+    if name in MERGE.values():
         return "name:" + name
     return p["account"]
 
 index = {}   # key -> position in names
 names = []   # latest name per player
-maps = []
-rows = []    # [at, map index, winner "red"/"blue", red player indexes, blue player indexes]
+rows = []    # [at, winner "red"/"blue", red player indexes, blue player indexes]
 for g in sorted(games, key=lambda g: g["at"]):
     final = {}
     for p in g["players"]:
-        if not p["finished"]:
+        if not p["finished"] or p["account"] is None:
             continue
         k = key(p)
         if k not in index:
@@ -38,14 +37,12 @@ for g in sorted(games, key=lambda g: g["at"]):
         end = float("inf") if p["to"] is None else p["to"]
         if k not in final or end >= final[k][0]:
             final[k] = (end, p["team"])
-    if g["map"] not in maps:
-        maps.append(g["map"])
     teams = {"red": [], "blue": []}
     for k, (_, t) in final.items():
         teams[t].append(index[k])
-    rows.append([g["at"], maps.index(g["map"]), g["winner"], teams["red"], teams["blue"]])
+    rows.append([g["at"], g["winner"], teams["red"], teams["blue"]])
 
-data = {"players": names, "maps": maps, "games": rows}
+data = {"players": names, "games": rows}
 
 html = """<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -65,7 +62,6 @@ td a { cursor: pointer; color: #06c; }
 <h1>Eggball Ranked: With and Against</h1>
 <p id="about"></p>
 <div id="filters">
-  <label>Map <select id="map-filter"><option value="">All maps</option></select></label>
   <label>From <input type="date" id="date-from"></label>
   <label>To <input type="date" id="date-to"></label>
   <label>Minimum games <input type="number" id="min-games" min="1" value="1" style="width:4em"></label>
@@ -85,25 +81,23 @@ const $ = (id) => document.getElementById(id);
 const day = (t) => new Date(t).toLocaleDateString();
 const first = DATA.games[0][0], last = DATA.games[DATA.games.length - 1][0];
 $('about').textContent = DATA.games.length + ' ranked games on playeggball.com, ' + day(first) + ' to ' + day(last) +
-  '. Wins and losses in the With and Against tables are the selected player\\'s. Only players still in the game at the end count. ' +
+  '. Wins and losses in the With and Against tables are the selected player\\'s. Only ranked players (no guests) still in the game at the end count. ' +
   'Click a column heading to sort by it; click it again to reverse.';
-DATA.maps.map((m, i) => [m, i]).sort().forEach(([m, i]) => $('map-filter').add(new Option(m, i)));
 
 const COLS = ['Player', 'Games', 'Wins', 'Losses', 'Win %'];
 const sorts = { 'with-table': [1, -1], 'against-table': [1, -1], 'all-players-table': [1, -1] };  // [column, 1 up / -1 down]
 let selected = null;
 
 function filteredGames() {
-  const map = $('map-filter').value;
   const from = $('date-from').value ? new Date($('date-from').value + 'T00:00').getTime() : -Infinity;
   const to = $('date-to').value ? new Date($('date-to').value + 'T00:00').getTime() + 864e5 : Infinity;
-  return DATA.games.filter(([at, m]) => (map === '' || m === +map) && at >= from && at < to);
+  return DATA.games.filter(([at]) => at >= from && at < to);
 }
 
 function count(games) {
   const total = new Map(), withs = new Map(), against = new Map();
   const add = (m, k, won) => { const r = m.get(k) || [0, 0]; r[won ? 0 : 1]++; m.set(k, r); };
-  for (const [, , winner, red, blue] of games) {
+  for (const [, winner, red, blue] of games) {
     for (const [mine, theirs, color] of [[red, blue, 'red'], [blue, red, 'blue']]) {
       const won = winner === color;
       for (const a of mine) {
@@ -137,10 +131,9 @@ function show() {
   const min = Math.max(1, +$('min-games').value || 1);
   const search = $('name-search').value.trim().toLowerCase();
   const nameOk = (p) => !search || DATA.players[p].toLowerCase().includes(search);
-  $('filter-summary').textContent = games.length + ' games match the map and date filters.';
+  $('filter-summary').textContent = games.length + ' games match the date filters.';
   // the sticky bar and captions repeat the player and filters, so any screenshot of the page explains itself
-  const filters = [$('map-filter').value === '' ? 'All maps' : DATA.maps[+$('map-filter').value],
-    ($('date-from').value || day(first)) + ' to ' + ($('date-to').value || day(last)),
+  const filters = [($('date-from').value || day(first)) + ' to ' + ($('date-to').value || day(last)),
     games.length + ' games'];
   if (min > 1) filters.push('only pairs/players with ' + min + '+ games');
   if (search) filters.push('names containing "' + search + '"');
@@ -185,9 +178,9 @@ $('all-players-table').tBodies[0].onclick = (e) => {
   window.scrollTo(0, 0);
 };
 $('player-select').onchange = () => { selected = +$('player-select').value; show(); };
-for (const id of ['map-filter', 'date-from', 'date-to', 'min-games', 'name-search']) $(id).oninput = show;
+for (const id of ['date-from', 'date-to', 'min-games', 'name-search']) $(id).oninput = show;
 $('reset-filters').onclick = () => {
-  $('map-filter').value = ''; $('date-from').value = ''; $('date-to').value = ''; $('min-games').value = 1; $('name-search').value = '';
+  $('date-from').value = ''; $('date-to').value = ''; $('min-games').value = 1; $('name-search').value = '';
   show();
 };
 show();
