@@ -6,6 +6,11 @@ body { font-family: sans-serif; margin: 16px; }
 #filters label { margin-right: 14px; display: inline-block; margin-bottom: 6px; }
 table { border-collapse: collapse; margin: 8px 24px 16px 0; display: inline-table; vertical-align: top; }
 caption { font-weight: bold; text-align: left; padding: 4px 0; }
+/* With is green, Against is red, and the sticky headings say which, so they stay apart when scrolled */
+#with-table th { background: #bfe3bf; }
+#with-table td { background: #f0f9f0; }
+#against-table th { background: #f2bcbc; }
+#against-table td { background: #fdf0f0; }
 th, td { border: 1px solid #ccc; padding: 3px 8px; text-align: right; }
 th:first-child, td:first-child { text-align: left; }
 th { cursor: pointer; background: #eee; user-select: none; white-space: nowrap; position: sticky; top: var(--bar-height, 0); }
@@ -39,6 +44,7 @@ $('about').textContent = DATA.games.length + ' ranked games on playeggball.com, 
   'Click a column heading to sort by it; click it again to reverse.';
 
 const COLS = ['Player', 'Games', 'Wins', 'Losses', 'Win %'];
+const FIRST_COL = { 'with-table': () => 'WITH ' + DATA.players[selected] + ': teammate', 'against-table': () => 'AGAINST ' + DATA.players[selected] + ': opponent', 'all-players-table': () => 'Player' };
 const sorts = { 'with-table': [1, -1], 'against-table': [1, -1], 'all-players-table': [1, -1] };  // [column, 1 up / -1 down]
 let selected = null;
 
@@ -70,7 +76,7 @@ const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 function fill(id, rows, linkNames) {
   // rows: [player index, wins, losses]
   const t = $(id), [col, dir] = sorts[id];
-  t.tHead.innerHTML = '<tr>' + COLS.map((c, i) => '<th data-col="' + i + '">' + c + (i === col ? (dir > 0 ? ' ▲' : ' ▼') : '') + '</th>').join('') + '</tr>';
+  t.tHead.innerHTML = '<tr>' + COLS.map((c, i) => '<th data-col="' + i + '">' + (i === 0 ? esc(FIRST_COL[id]()) : c) + (i === col ? (dir > 0 ? ' ▲' : ' ▼') : '') + '</th>').join('') + '</tr>';
   const r = rows.map(([p, w, l]) => [DATA.players[p], w + l, w, l, w / (w + l), p]);
   const byName = (a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' });
   r.sort((a, b) => (col === 0 ? byName(a, b) * dir : (a[col] - b[col]) * dir) || b[1] - a[1] || byName(a, b));
