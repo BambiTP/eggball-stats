@@ -92,29 +92,27 @@ function fill(id, rows, linkNames) {
     : '<tr><td colspan="5">No one matches the filters</td></tr>';
 }
 
-// Best/worst picks rank by a Wilson 95% score interval instead of the raw win %, so few games count for little:
-// best = highest low end (1-0 scores 21%, 8-2 scores 49%), worst = lowest high end.
-const BEST_WORST_MIN_GAMES = 3, Z = 1.96;
-function wilson(w, n, side) {
-  const p = w / n, mid = p + Z * Z / (2 * n), spread = Z * Math.sqrt(p * (1 - p) / n + Z * Z / (4 * n * n));
-  return (mid + side * spread) / (1 + Z * Z / n);
-}
+// Best/worst picks rank by plus/minus (wins minus losses): best = highest, worst = lowest.
+// Ties go to the better (best) or worse (worst) win %.
 function pick(rows, best) {
-  let top = null, topScore = 0;
-  for (const [p, w, l] of rows) {
-    const score = wilson(w, w + l, best ? -1 : 1);
-    if (top === null || (best ? score > topScore : score < topScore)) { top = [p, w, l]; topScore = score; }
+  const side = best ? 1 : -1;
+  let top = null;
+  for (const r of rows) {
+    const [, w, l] = r;
+    if (top === null) { top = r; continue; }
+    const diff = (w - l) - (top[1] - top[2]);
+    if (diff * side > 0 || (diff === 0 && (w / (w + l) - top[1] / (top[1] + top[2])) * side > 0)) top = r;
   }
   return top;
 }
 function fillBestWorst(who, withRows, againstRows) {
   const t = $('best-worst-table');
-  t.tHead.innerHTML = '<tr><th>' + esc(who) + '</th><th>Player</th><th>Games</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>';
+  t.tHead.innerHTML = '<tr><th>' + esc(who) + '</th><th>Player</th><th>+/-</th><th>Games</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>';
   t.tBodies[0].innerHTML = [['Best with', withRows, true, 'with-row'], ['Worst with', withRows, false, 'with-row'],
     ['Best against', againstRows, true, 'against-row'], ['Worst against', againstRows, false, 'against-row']].map(([label, rows, best, cls]) => {
     const r = pick(rows, best);
-    return '<tr class="' + cls + '"><td>' + label + '</td>' + (r ? '<td>' + esc(DATA.players[r[0]]) + '</td><td>' + (r[1] + r[2]) + '</td><td>' + r[1] + '</td><td>' + r[2] + '</td><td>' + pct(r[1], r[2]) + '</td>'
-      : '<td colspan="5">No one with ' + BEST_WORST_MIN_GAMES + '+ games</td>') + '</tr>';
+    return '<tr class="' + cls + '"><td>' + label + '</td>' + (r ? '<td>' + esc(DATA.players[r[0]]) + '</td><td>' + (r[1] - r[2] > 0 ? '+' : '') + (r[1] - r[2]) + '</td><td>' + (r[1] + r[2]) + '</td><td>' + r[1] + '</td><td>' + r[2] + '</td><td>' + pct(r[1], r[2]) + '</td>'
+      : '<td colspan="6">No one</td>') + '</tr>';
   }).join('');
 }
 
@@ -151,10 +149,8 @@ function show() {
     const [w, l] = total.get(selected);
     $('player-record').textContent = w + ' wins, ' + l + ' losses (' + pct(w, l) + ')';
   } else $('player-record').textContent = 'No games match the filters';
-  const bwMin = Math.max(min, BEST_WORST_MIN_GAMES);
-  $('best-worst-about').textContent = 'Best and worst: ranked by win % and games together, so a 1-0 cannot top a 9-2. ' +
-    'Only pairs with ' + bwMin + '+ games. (Score: Wilson 95% interval, low end for best, high end for worst.)';
-  const bw = (m) => selected === null ? [] : pairs(m).filter(([, w, l]) => w + l >= bwMin);
+  $('best-worst-about').textContent = 'Best and worst: by plus/minus (wins minus losses together). Ties go to the higher (best) or lower (worst) win %.';
+  const bw = (m) => selected === null ? [] : pairs(m);
   fillBestWorst(who, bw(withs), bw(against));
   fill('with-table', selected === null ? [] : pairs(withs));
   fill('against-table', selected === null ? [] : pairs(against));
