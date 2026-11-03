@@ -11,7 +11,7 @@ import json, os, sys
 
 DIR = os.path.expanduser(sys.argv[1] if len(sys.argv) > 1 else "~/tagpro-analytics/data/playeggball")
 # alt name -> main name: the same person on two accounts
-MERGE = {"waoter": "3"}
+MERGE = {}
 
 games = json.load(open(os.path.join(DIR, "games.json")))
 
