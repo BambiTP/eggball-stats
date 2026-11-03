@@ -68,7 +68,11 @@ th { cursor: pointer; background: #eee; user-select: none; white-space: nowrap; 
 #context-bar { position: sticky; top: 0; z-index: 1; background: #fff; border-bottom: 2px solid #999; padding: 6px 0; margin-bottom: 8px; }
 #context-player { font-size: 1.2em; font-weight: bold; }
 td a { cursor: pointer; color: #06c; }
+#page-tabs { margin-bottom: 12px; border-bottom: 2px solid #999; }
+#page-tabs a { display: inline-block; padding: 6px 14px; border: 1px solid #999; border-bottom: none; text-decoration: none; color: #06c; }
+#page-tabs a.current-tab { background: #ddd; color: #000; font-weight: bold; }
 </style></head><body>
+<nav id="page-tabs"><a href="index.html" class="current-tab">With and Against</a> <a href="scores.html">Final scores: TPM vs playeggball</a></nav>
 <h1>Eggball Ranked: With and Against</h1>
 <p id="about"></p>
 <div id="filters">
