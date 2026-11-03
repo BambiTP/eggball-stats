@@ -34,7 +34,7 @@ MIN_GAMES = 20
 BIN = 10   # yards per expected-points bucket
 
 TABS = [('index.html', 'With and Against'), ('scores.html', 'Final scores: TPM vs playeggball'),
-        ('games.html', 'Games'), ('players.html', 'Players')]
+        ('games.html', 'Games'), ('players.html', 'Players'), ('posters.html', 'Best and worst')]
 
 CSS = """
 body { font-family: sans-serif; margin: 16px; line-height: 1.4; }
@@ -612,6 +612,130 @@ def player_page(k, a):
     return page(f'{a["name"]} – Eggball', None, body, depth=1)
 
 
+def game_rating(p):
+    """One number for a single game: points scored, plus half a point per assist and a quarter per second
+    assist, plus expected points taken away by steals and interceptions, minus expected points given up by turnovers."""
+    l = p['lists']
+    return (p['points_scored'] + 0.5 * p['assists'] + 0.25 * p['second_assists']
+            + sum(l['xpoints_taken']) - sum(l['xpoints_given']))
+
+
+POSTER_CSS = """
+.poster { display: inline-block; vertical-align: top; width: 330px; margin: 0 14px 18px 0; padding: 12px 16px;
+          border: 4px solid #333; background: #fffbea; }
+.poster.worst { background: #fdeeee; border-color: #a33; }
+.poster.best { background: #eef8ee; border-color: #383; }
+.poster h3 { margin: 0 0 2px; font-size: 0.95em; text-transform: uppercase; letter-spacing: 1px; }
+.poster .poster-name { font-size: 2em; font-weight: bold; margin: 4px 0; }
+.poster .poster-rating { font-size: 1.3em; font-weight: bold; }
+.poster table { margin: 6px 0; }
+.poster td { white-space: normal; }
+"""
+
+
+def poster(kind, period, rating, g, k, p, keys):
+    info, l = g['info'], p['lists']
+    result = 'won' if p['team'] == info['winner'] else 'lost'
+    name = f'<a href="players/{file_key(k)}.html">{esc(p["name"])}</a>' if k in keys else esc(p['name'])
+    lines = [('Goals', p['goals']), ('Assists', p['assists']), ('2nd assists', p['second_assists']),
+             ('Passes / throws', f'{p["passes"]}/{p["throws"]}'),
+             ('Turnovers', f'{p["turnovers"]} ({p["sacked"]} sacked, {p["throws_lost"]} throws lost)'),
+             ('Points scored off their turnovers', p['points_given']),
+             ('xP given up', f'{sum(l["xpoints_given"]):.2f}'),
+             ('Steals / interceptions', f'{p["steals"]} / {p["interceptions"]}'),
+             ('xP taken away', f'{sum(l["xpoints_taken"]):.2f}')]
+    rows = ''.join(f'<tr><td>{a}</td><td>{b}</td></tr>' for a, b in lines)
+    return (f'<div class="poster {kind}"><h3>{"Best" if kind == "best" else "Worst"} game: {period}</h3>'
+            f'<div class="poster-name">{name}</div>'
+            f'<div class="poster-rating">Game rating {rating:+.2f}</div>'
+            f'<div>{p["team"].capitalize()}, {result} {info["score"]["red"]}–{info["score"]["blue"]} (red–blue), '
+            f'<a href="games/{info["id"]}.html">{when(g)}</a></div>'
+            f'<table>{rows}</table></div>')
+
+
+def streaks(games, per, keep):
+    """Longest run of wins and of losses in a row for each player, using only their finished games
+    that pass keep(datetime). Returns [(length, kind, name, key, first game, last game)]."""
+    history = collections.defaultdict(list)
+    for g in games:
+        at = datetime.datetime.fromtimestamp(g['info']['at'] / 1000)
+        if not keep(at):
+            continue
+        for k, p in per[g['info']['id']]['players'].items():
+            if p['finished'] and g['info']['winner']:
+                history[k].append((g, p['name'], p['team'] == g['info']['winner']))
+    out = []
+    for k, items in history.items():
+        for want in (True, False):
+            best, run = None, []
+            for g, name, won in items:
+                run = run + [g] if won == want else []
+                if run and (best is None or len(run) > len(best[0])):
+                    best = (run, name)
+            if best:
+                out.append((len(best[0]), 'win' if want else 'loss', best[1], k, best[0][0], best[0][-1]))
+    return out
+
+
+def streak_section(games, per, now):
+    periods = [('all time', lambda at: True),
+               ('last 7 days', lambda at: at >= now - datetime.timedelta(days=7)),
+               ('today', lambda at: at.date() == now.date())]
+    parts = ['<h2>Streaks</h2><p class="explain">Wins or losses in a row, counting only games the player finished.</p>']
+    for kind, title, css in (('win', 'Best win streak', 'best'), ('loss', 'Worst losing streak', 'worst')):
+        for period, keep in periods:
+            pool = [x for x in streaks(games, per, keep) if x[1] == kind]
+            if not pool:
+                parts.append(f'<p>No games {period} yet.</p>')
+                continue
+            top = max(x[0] for x in pool)
+            tied = sorted([x for x in pool if x[0] == top], key=lambda x: x[2].lower())
+            names = ', '.join(f'<a href="players/{file_key(x[3])}.html">{esc(x[2])}</a>' for x in tied)
+            spans = '<br>'.join(f'{esc(x[2])}: <a href="games/{x[4]["info"]["id"]}.html">{when(x[4])}</a> to '
+                                f'<a href="games/{x[5]["info"]["id"]}.html">{when(x[5])}</a>' for x in tied[:5])
+            parts.append(f'<div class="poster {css}"><h3>{title}: {period}</h3><div class="poster-name">{names}</div>'
+                         f'<div class="poster-rating">{top} {"wins" if kind == "win" else "losses"} in a row</div>'
+                         f'<div>{spans}{"<br>and more" if len(tied) > 5 else ""}</div></div>')
+    return '\n'.join(parts)
+
+
+def posters_page(games, per, keys):
+    now = datetime.datetime.now()
+    entries = []
+    for g in games:
+        at = datetime.datetime.fromtimestamp(g['info']['at'] / 1000)
+        for k, p in per[g['info']['id']]['players'].items():
+            if p['finished'] and p['minutes'] >= 5:
+                entries.append((game_rating(p), at, g, k, p))
+    periods = [('all time', lambda at: True),
+               ('last 7 days', lambda at: at >= now - datetime.timedelta(days=7)),
+               ('today', lambda at: at.date() == now.date())]
+    body = ['<h1>Best and worst: single games and streaks</h1>',
+            '<p class="explain"><b>Game rating</b> = points scored + ½ per assist + ¼ per second assist '
+            '+ expected points taken away (steals and interceptions) − expected points given up (turnovers). '
+            'Only players who played 5+ minutes and finished the game. "Today" and "last 7 days" use the server\'s clock (Pacific time). '
+            f'Updated {now:%Y-%m-%d %H:%M}.</p>']
+    for kind in ('best', 'worst'):
+        body.append(f'<h2>{"Best" if kind == "best" else "Worst"} stat lines</h2>')
+        for period, keep in periods:
+            pool = [e for e in entries if keep(e[1])]
+            if not pool:
+                body.append(f'<p>No games {period} yet.</p>')
+                continue
+            e = max(pool, key=lambda e: e[0]) if kind == 'best' else min(pool, key=lambda e: e[0])
+            body.append(poster(kind, period, e[0], e[2], e[3], e[4], keys))
+        # runners-up, all time
+        ranked = sorted(entries, key=lambda e: e[0], reverse=kind == 'best')[:10]
+        body.append(f'<table><caption>{"Best" if kind == "best" else "Worst"} 10 all time</caption>'
+                    '<tr><th>Player</th><th>Rating</th><th>Game</th><th>Goals</th><th>Assists</th><th>Turnovers</th></tr>'
+                    + ''.join(f'<tr><td>{esc(p["name"])}</td><td>{r:+.2f}</td><td><a href="games/{g["info"]["id"]}.html">{when(g)}</a></td>'
+                              f'<td>{p["goals"]}</td><td>{p["assists"]}</td><td>{p["turnovers"]}</td></tr>'
+                              for r, at, g, k, p in ranked) + '</table>')
+    body.append(streak_section(games, per, now))
+    text = page('Eggball Best and Worst Games', 'posters.html', '\n'.join(body))
+    return text.replace('</style>', POSTER_CSS + '</style>', 1)
+
+
 def main():
     games = load_games()
     for g in games:
@@ -633,6 +757,7 @@ def main():
     for g in games:
         write(f'games/{g["info"]["id"]}.html', game_page(g, per[g['info']['id']], keys))
     write('players.html', players_page(total, table))
+    write('posters.html', posters_page(games, per, keys))
     for k, a in total.items():
         write(f'players/{file_key(k)}.html', player_page(k, a))
     print(f'{len(games)} games, {len(total)} players -> {SITE}')
