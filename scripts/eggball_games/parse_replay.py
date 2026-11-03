@@ -132,8 +132,8 @@ def parse(path):
                             chain = [p for i, p in enumerate(touches) if i == 0 or p != touches[i - 1]]
                             if len(chain) >= 2 and chain[-1] == scorer:
                                 g['assist'] = chain[-2]
-                            if len(chain) >= 3 and chain[-1] == scorer:
-                                g['second_assist'] = chain[-3]
+                            if len(chain) >= 3 and chain[-1] == scorer and chain[-3] != scorer:
+                                g['second_assist'] = chain[-3]   # not the scorer's own give-and-go
                             g['passes'] = poss['passes']
                             g['possession_seconds'] = round((t - poss['start']) / 1000, 1)
                             g['possession_start_yard'] = poss['start_yard']

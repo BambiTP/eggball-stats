@@ -28,7 +28,7 @@ from parse_replay import parse
 DATA = os.path.expanduser('~/tagpro-analytics/data/playeggball')
 SITE = os.path.expanduser(sys.argv[1] if len(sys.argv) > 1 else '~/eggball-live/site')
 CACHE = os.path.join(DATA, 'parsed')
-PARSER_VERSION = 3
+PARSER_VERSION = 4
 MERGE = {'Bambi1': 'Bambi', 'waoter': '3'}   # alt name -> main name, same as the with/against page
 MIN_GAMES = 20
 BIN = 10   # yards per expected-points bucket
@@ -411,7 +411,7 @@ def game_page(g, s, keys):
                   + trow('Turnovers', 'turnovers') + trow('Sacked', 'sacked') + trow('Throws lost', 'throws_lost')
                   + trow('Avg turnover yard', 'turnover_yard') + '</table>')
     rows = []
-    for k, p in sorted(s['players'].items(), key=lambda kv: (kv[1]['team'], -kv[1]['goals'])):
+    for k, p in sorted(s['players'].items(), key=lambda kv: (kv[1]['team'] != 'red', -kv[1]['goals'])):
         l = p['lists']
         name = f'<a href="../players/{file_key(k)}.html">{esc(p["name"])}</a>' if k in keys else esc(p['name'])
         if not p['finished']:
@@ -429,8 +429,13 @@ def game_page(g, s, keys):
             + cell(p['saves']) + cell(p['box_points']) + '</tr>')
     head = ''.join(f'<th>{c}</th>' for c, _ in PLAYER_COLUMNS)
     names = g['name']
+    kickoff = g['possessions'][0]['start'] if g['possessions'] else 0
+
+    def clock(ms):
+        ms = max(0, ms - kickoff)
+        return f'{ms // 60000}:{ms // 1000 % 60:02d}'
     goal_rows = ''.join(
-        f'<tr class="{x["team"]}-team"><td>{x["time"] // 60000}:{x["time"] // 1000 % 60:02d}</td><td>{x["red"]}–{x["blue"]}</td>'
+        f'<tr class="{x["team"]}-team"><td>{clock(x["time"])}</td><td>{x["red"]}–{x["blue"]}</td>'
         f'<td>{esc(names.get(x["scorer"], ""))}</td><td>{esc(names.get(x["assist"], ""))}</td>'
         f'<td>{esc(names.get(x["second_assist"], ""))}</td><td>{"yes" if x["boat"] else ""}</td>'
         f'<td>{"" if x["passes"] is None else x["passes"]}</td>'
@@ -443,7 +448,7 @@ def game_page(g, s, keys):
             + team_table
             + '<div class="wide"><table class="sortable"><caption>Players (red rows first, then blue; click a heading to sort)</caption>'
             + f'<thead><tr>{head}</tr></thead><tbody>' + ''.join(rows) + '</tbody></table></div>'
-            + '<table><caption>Goals (clock time from the start of the replay)</caption><tr><th>Time</th><th>Score</th>'
+            + '<table><caption>Goals (time since the opening kickoff)</caption><tr><th>Time</th><th>Score</th>'
               '<th>Scorer</th><th>Assist</th><th>2nd assist</th><th>Raptor Boat</th><th>Passes</th>'
               '<th>Possession seconds</th><th>Possession started on yard</th></tr>' + goal_rows + '</table>'
             + DEFINITIONS)
