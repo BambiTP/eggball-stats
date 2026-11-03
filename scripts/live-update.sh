@@ -1,5 +1,7 @@
 #!/bin/bash
-# Every 10 minutes (systemd user timer eggball-live.timer): download new ranked replays and rebuild the live site
+# The timer (eggball-live.timer) starts this every 10 minutes. During game time (a ranked game in the last hour)
+# it runs every time; when games have stopped it only runs every 30 minutes and skips the other runs.
+# Each run downloads new ranked replays and rebuilds the live site
 # in ~/eggball-live/site, which eggball-live-server serves and eggball-live-tunnel puts on the internet.
 # GitHub (bambitp.github.io/eggball-stats) is no longer updated; it keeps the stats it already had.
 set -e
@@ -7,6 +9,16 @@ DATA=~/tagpro-analytics/data/playeggball
 SCRIPTS=~/tagpro-analytics/scripts
 SITE=~/eggball-live/site
 mkdir -p "$SITE"
+LAST_RUN=~/eggball-live/last-run
+# minutes since the newest saved game, and since the last run that did not skip
+QUIET=$(python3 -c "import json,time; g=json.load(open('$DATA/games.json')); print(int((time.time()*1000-max(x['at'] for x in g))/60000))")
+SINCE_RUN=$(( ($(date +%s) - $(stat -c %Y "$LAST_RUN" 2>/dev/null || echo 0)) / 60 ))
+if [ "$QUIET" -ge 60 ] && [ "$SINCE_RUN" -lt 29 ]; then
+  echo "$(date '+%F %T') no games for $QUIET minutes, last run $SINCE_RUN minutes ago: skipping (quiet time runs every 30 minutes)"
+  exit 0
+fi
+touch "$LAST_RUN"
+echo "$(date '+%F %T') newest game $QUIET minutes ago: updating"
 python3 -u "$SCRIPTS/fetch_playeggball_replays.py" "$DATA"
 export EGGBALL_EXTRA_TABS='<a href="games.html">Games</a> <a href="players.html">Players</a>'
 python3 "$SCRIPTS/playeggball_with_against.py" "$DATA"
