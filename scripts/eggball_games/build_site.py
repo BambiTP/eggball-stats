@@ -29,7 +29,7 @@ DATA = os.path.expanduser('~/tagpro-analytics/data/playeggball')
 SITE = os.path.expanduser(sys.argv[1] if len(sys.argv) > 1 else '~/eggball-live/site')
 CACHE = os.path.join(DATA, 'parsed')
 PARSER_VERSION = 4
-MERGE = {'Bambi1': 'Bambi', 'waoter': '3'}   # alt name -> main name, same as the with/against page
+MERGE = {'waoter': '3'}   # alt name -> main name, same as the with/against page
 MIN_GAMES = 20
 BIN = 10   # yards per expected-points bucket
 
