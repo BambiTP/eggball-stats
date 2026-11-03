@@ -12,9 +12,9 @@ body { font-family: sans-serif; margin: 16px; line-height: 1.4; }
 <nav id="page-tabs">
   <a href="index.html">With and Against</a>
   <a href="scores.html">Final scores: TPM vs playeggball</a>
-  <a href="live.html?p=games.html" id="games-tab">Games</a>
-  <a href="live.html?p=players.html" id="players-tab">Players</a>
-  <a href="live.html?p=posters.html" id="posters-tab">Best and worst</a>
+  <a href="live.html?page=games" id="games-tab">Games</a>
+  <a href="live.html?page=players" id="players-tab">Players</a>
+  <a href="live.html?page=best-and-worst" id="posters-tab">Best and worst</a>
 </nav>
 <div id="live-content"><p id="live-status">Loading the live stats…</p></div>
 <script>
@@ -22,11 +22,26 @@ body { font-family: sans-serif; margin: 16px; line-height: 1.4; }
 // The tunnel's address changes when it restarts; the server writes the current one into this gist.
 var gistAddress = 'https://api.github.com/gists/a591c82f75da2b09bdd7cb6b98b77db5';
 var liveContent = document.getElementById('live-content');
-var livePath = new URLSearchParams(location.search).get('p') || 'games.html';
+// Short addresses: ?player=Bambi, ?game=<id>, ?page=games|players|best-and-worst.
+// The old form ?p=<path on the live server> still works.
+var PAGES = { 'games': 'games.html', 'players': 'players.html', 'best-and-worst': 'posters.html' };
+var query = new URLSearchParams(location.search);
+var livePath = query.get('p') ||
+  (query.get('player') ? 'players/' + query.get('player') + '.html' :
+   query.get('game') ? 'games/' + query.get('game') + '.html' :
+   PAGES[query.get('page')] || 'games.html');
 
-// only paths like games.html, games/<id>.html, players/<id>.html
-if (!/^((games|players)(\/[A-Za-z0-9_]+)?|posters)\.html$/.test(livePath)) livePath = 'games.html';
+// only paths like games.html, games/<id>.html, players/<name>.html, posters.html
+if (!/^((games|players)(\/[A-Za-z0-9_-]+)?|posters)\.html$/.test(livePath)) livePath = 'games.html';
 document.getElementById(livePath.startsWith('players') ? 'players-tab' : livePath === 'posters.html' ? 'posters-tab' : 'games-tab').className = 'current-tab';
+
+// the short address for a path on the live server
+function shortAddress(path) {
+  var m = path.match(/^(players|games)\/([A-Za-z0-9_-]+)\.html$/);
+  if (m) return 'live.html?' + (m[1] === 'players' ? 'player=' : 'game=') + m[2];
+  for (var name in PAGES) if (PAGES[name] === path) return 'live.html?page=' + name;
+  return 'live.html?p=' + encodeURIComponent(path);
+}
 
 function showError(text) {
   liveContent.innerHTML = '';
@@ -35,12 +50,12 @@ function showError(text) {
   liveContent.appendChild(p);
 }
 
-// turn a link inside a live page into a live.html?p=... link on this site
+// turn a link inside a live page into a short live.html link on this site
 function rewriteLink(link) {
   var href = link.getAttribute('href');
   if (!href || /^(https?:|#)/.test(href)) return;
   var resolved = new URL(href, 'https://x/' + livePath).pathname.slice(1);
-  link.setAttribute('href', 'live.html?p=' + encodeURIComponent(resolved));
+  link.setAttribute('href', shortAddress(resolved));
 }
 
 function getServerAddress() {

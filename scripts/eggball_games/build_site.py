@@ -115,7 +115,26 @@ def player_key(p):
     return p['account']
 
 
+PROFILE_FILE = {}   # player key -> readable file name (from their latest name), filled in by name_profiles()
+
+
+def name_profiles(total):
+    """Give each player a readable page name like "Lancer-Evo-X" instead of their account id.
+    Players with the most games get a clashing name first; anyone after them gets "-2", "-3"."""
+    used = set()
+    for k, a in sorted(total.items(), key=lambda x: -len(x[1]['log'])):
+        base = '-'.join(''.join(c if (c.isascii() and c.isalnum()) or c == '_' else ' ' for c in a['name']).split()) or 'player'
+        name, n = base, 1
+        while name.lower() in used:
+            n += 1
+            name = f'{base}-{n}'
+        used.add(name.lower())
+        PROFILE_FILE[k] = name
+
+
 def file_key(key):
+    if key in PROFILE_FILE:
+        return PROFILE_FILE[key]
     return ''.join(c if c.isalnum() else '_' for c in key)
 
 
@@ -846,6 +865,7 @@ def main():
     table = expected_points_table(games)
     per = {g['info']['id']: per_game(g, table) for g in games}
     total = aggregate(games, per)
+    name_profiles(total)
     os.makedirs(os.path.join(SITE, 'games'), exist_ok=True)
     os.makedirs(os.path.join(SITE, 'players'), exist_ok=True)
 
@@ -863,6 +883,11 @@ def main():
     write('posters.html', posters_page(games, per, keys))
     for k, a in total.items():
         write(f'players/{file_key(k)}.html', player_page(k, a, per, keys))
+    # drop pages left from before (old account-id names, or a player who changed name)
+    wanted = {file_key(k) + '.html' for k in total}
+    for f in os.listdir(os.path.join(SITE, 'players')):
+        if f.endswith('.html') and f not in wanted:
+            os.remove(os.path.join(SITE, 'players', f))
     print(f'{len(games)} games, {len(total)} players -> {SITE}')
 
 
