@@ -2,27 +2,83 @@
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Eggball Live Stats</title>
 <style>
-body { font-family: sans-serif; margin: 16px; }
-</style></head><body>
-<h1>Eggball live stats</h1>
-<p id="live-status">Finding the live stats server…</p>
-<p>The live site has every ranked game and every player's stats, updated every 10 minutes.
-It runs on a home computer, so its address changes now and then; this page looks up the current one.</p>
+body { font-family: sans-serif; margin: 16px; line-height: 1.4; }
+#page-tabs { margin-bottom: 12px; border-bottom: 2px solid #999; }
+#page-tabs a { display: inline-block; padding: 6px 14px; border: 1px solid #999; border-bottom: none; text-decoration: none; color: #06c; }
+#page-tabs a.current-tab { background: #ddd; color: #000; font-weight: bold; }
+</style>
+<style id="live-styles"></style>
+</head><body>
+<nav id="page-tabs">
+  <a href="index.html">With and Against</a>
+  <a href="scores.html">Final scores: TPM vs playeggball</a>
+  <a href="live.html?p=games.html" id="games-tab">Games</a>
+  <a href="live.html?p=players.html" id="players-tab">Players</a>
+</nav>
+<div id="live-content"><p id="live-status">Loading the live stats…</p></div>
 <script>
-// the live server writes its current address into this gist (see tunnel.py)
+// The live stats are built every 10 minutes on a home computer and served through a Cloudflare tunnel.
+// The tunnel's address changes when it restarts; the server writes the current one into this gist.
 var gistAddress = 'https://api.github.com/gists/a591c82f75da2b09bdd7cb6b98b77db5';
-var liveStatus = document.getElementById('live-status');
-fetch(gistAddress, { cache: 'no-store' })
-  .then(function (response) { return response.json(); })
-  .then(function (gist) {
-    var live = JSON.parse(gist.files['eggball-live.json'].content);
-    if (!live.url || !/^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/.test(live.url)) throw new Error('no address');
-    var target = live.url + '/' + (location.hash ? location.hash.slice(1) : 'games.html');
-    liveStatus.innerHTML = 'Opening <a href="' + target + '">' + target + '</a>…';
-    location.replace(target);
+var liveContent = document.getElementById('live-content');
+var livePath = new URLSearchParams(location.search).get('p') || 'games.html';
+
+// only paths like games.html, games/<id>.html, players/<id>.html
+if (!/^(games|players)(\/[A-Za-z0-9_]+)?\.html$/.test(livePath)) livePath = 'games.html';
+document.getElementById(livePath.startsWith('players') ? 'players-tab' : 'games-tab').className = 'current-tab';
+
+function showError(text) {
+  liveContent.innerHTML = '';
+  var p = document.createElement('p');
+  p.textContent = text;
+  liveContent.appendChild(p);
+}
+
+// turn a link inside a live page into a live.html?p=... link on this site
+function rewriteLink(link) {
+  var href = link.getAttribute('href');
+  if (!href || /^(https?:|#)/.test(href)) return;
+  var resolved = new URL(href, 'https://x/' + livePath).pathname.slice(1);
+  link.setAttribute('href', 'live.html?p=' + encodeURIComponent(resolved));
+}
+
+function getServerAddress() {
+  return fetch(gistAddress, { cache: 'no-store' })
+    .then(function (response) { return response.json(); })
+    .then(function (gist) {
+      var live = JSON.parse(gist.files['eggball-live.json'].content);
+      if (!live.url || !/^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/.test(live.url)) throw new Error('no address');
+      return live.url;
+    });
+}
+
+getServerAddress()
+  .then(function (server) { return fetch(server + '/' + livePath, { cache: 'no-store' }); })
+  .then(function (response) {
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    return response.text();
+  })
+  .then(function (text) {
+    var page = new DOMParser().parseFromString(text, 'text/html');
+    document.title = page.title;
+    var style = page.querySelector('style');
+    if (style) document.getElementById('live-styles').textContent = style.textContent;
+    var nav = page.getElementById('page-tabs');
+    if (nav) nav.remove();
+    var scripts = Array.from(page.body.querySelectorAll('script'));
+    scripts.forEach(function (s) { s.remove(); });
+    page.body.querySelectorAll('a').forEach(rewriteLink);
+    liveContent.innerHTML = page.body.innerHTML;
+    // scripts added through innerHTML don't run, so add them again (sorting, minimum games filter)
+    scripts.forEach(function (s) {
+      var copy = document.createElement('script');
+      copy.textContent = s.textContent;
+      document.body.appendChild(copy);
+    });
+    window.scrollTo(0, 0);
   })
   .catch(function () {
-    liveStatus.textContent = 'The live stats server is offline right now. Try again later.';
+    showError('The live stats server is offline right now (it runs on a home computer). Try again later.');
   });
 </script>
 </body></html>
