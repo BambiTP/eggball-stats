@@ -1,100 +1,170 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Eggball Live Stats</title>
+<title>Eggball Ranked Stats</title>
 <style>
-body { font-family: sans-serif; margin: 16px; line-height: 1.4; }
+body { font-family: sans-serif; margin: 16px; line-height: 1.4; background: #fff; color: #000; }
 #page-tabs { margin-bottom: 12px; border-bottom: 2px solid #999; }
-#page-tabs a { display: inline-block; padding: 6px 14px; border: 1px solid #999; border-bottom: none; text-decoration: none; color: #06c; }
+#page-tabs a { display: inline-block; padding: 6px 14px; border: 1px solid #999; border-bottom: none; text-decoration: none; color: #06c; margin-top: 4px; }
 #page-tabs a.current-tab { background: #ddd; color: #000; font-weight: bold; }
+#player-search-form { display: inline-block; margin: 4px 0 4px 8px; }
+#player-search { width: 11em; }
+#search-message { color: #b22; margin-left: 6px; }
+#offline-message { border: 1px solid #c9a227; background: #fdf6dc; padding: 6px 12px; max-width: 700px; }
+@media (max-width: 600px) {
+  body { margin: 8px; }
+  #page-tabs a { padding: 4px 8px; font-size: 0.9em; }
+  #player-search-form { display: block; margin: 6px 0; }
+}
 </style>
 <style id="live-styles"></style>
 </head><body>
 <nav id="page-tabs">
-  <a href="index.html">With and Against</a>
-  <a href="scores.html">Final scores: TPM vs playeggball</a>
-  <a href="live.html?page=games" id="games-tab">Games</a>
-  <a href="live.html?page=players" id="players-tab">Players</a>
-  <a href="live.html?page=best-and-worst" id="posters-tab">Best and worst</a>
+  <a href="?" id="home-tab">Home</a>
+  <a href="?page=with-and-against" id="with-and-against-tab">With and Against</a>
+  <a href="?page=final-scores" id="final-scores-tab">Final scores</a>
+  <a href="?page=games" id="games-tab">Games</a>
+  <a href="?page=players" id="players-tab">Players</a>
+  <a href="?page=best-and-worst" id="best-and-worst-tab">Best and worst</a>
+  <a href="?page=head-to-head" id="head-to-head-tab">Head to head</a>
+  <form id="player-search-form"><label>Find a player <input type="search" id="player-search" list="player-names" autocomplete="off"></label>
+    <datalist id="player-names"></datalist><span id="search-message"></span></form>
 </nav>
 <div id="live-content"><p id="live-status">Loading the live stats…</p></div>
 <script>
-// The live stats are built every 10 minutes on a home computer and served through a Cloudflare tunnel.
-// The tunnel's address changes when it restarts; the server writes the current one into this gist.
+// The live stats are built on a home computer (every 10 minutes while people are playing) and served through a
+// Cloudflare tunnel. The tunnel's address changes when it restarts; the server writes the current one into this gist.
+// This page (index.html and live.html are the same file) loads the live pages into itself.
+//
+// Addresses: ?player=Bambi  ?game=<id>  ?page=games|players|best-and-worst|head-to-head|with-and-against|final-scores
+// No address = the home page. The old ?p=<path on the live server> form still works.
+window.EGGBALL_LOADER = true;   // pages that build their own links check this
 var gistAddress = 'https://api.github.com/gists/a591c82f75da2b09bdd7cb6b98b77db5';
 var liveContent = document.getElementById('live-content');
-// Short addresses: ?player=Bambi, ?game=<id>, ?page=games|players|best-and-worst.
-// The old form ?p=<path on the live server> still works.
-var PAGES = { 'games': 'games.html', 'players': 'players.html', 'best-and-worst': 'posters.html' };
+var PAGES = { 'home': 'home.html', 'with-and-against': 'index.html', 'final-scores': 'scores.html', 'games': 'games.html',
+  'players': 'players.html', 'best-and-worst': 'posters.html', 'head-to-head': 'compare.html' };
 var query = new URLSearchParams(location.search);
 var livePath = query.get('p') ||
   (query.get('player') ? 'players/' + query.get('player') + '.html' :
    query.get('game') ? 'games/' + query.get('game') + '.html' :
-   PAGES[query.get('page')] || 'games.html');
+   PAGES[query.get('page')] || 'home.html');
 
-// only paths like games.html, games/<id>.html, players/<name>.html, posters.html
-if (!/^((games|players)(\/[A-Za-z0-9_-]+)?|posters)\.html$/.test(livePath)) livePath = 'games.html';
-document.getElementById(livePath.startsWith('players') ? 'players-tab' : livePath === 'posters.html' ? 'posters-tab' : 'games-tab').className = 'current-tab';
+// only the live site's own pages
+if (!/^((games|players)\/[A-Za-z0-9_-]+|home|index|scores|games|players|posters|compare)\.html$/.test(livePath)) livePath = 'home.html';
 
-// the short address for a path on the live server
-function shortAddress(path) {
+var currentTab = livePath.startsWith('players') ? 'players' : livePath.startsWith('games') ? 'games' : 'home';
+for (var name in PAGES) if (PAGES[name] === livePath) currentTab = name;
+document.getElementById(currentTab + '-tab').className = 'current-tab';
+
+// the short address on this site for a path (and query) on the live server
+function shortAddress(path, search) {
   var m = path.match(/^(players|games)\/([A-Za-z0-9_-]+)\.html$/);
-  if (m) return 'live.html?' + (m[1] === 'players' ? 'player=' : 'game=') + m[2];
-  for (var name in PAGES) if (PAGES[name] === path) return 'live.html?page=' + name;
-  return 'live.html?p=' + encodeURIComponent(path);
+  if (m) return '?' + (m[1] === 'players' ? 'player=' : 'game=') + m[2];
+  for (var name in PAGES) {
+    if (PAGES[name] === path) {
+      if (name === 'home') return '?';
+      return '?page=' + name + (search ? '&' + search.slice(1) : '');
+    }
+  }
+  return '?p=' + encodeURIComponent(path);
 }
 
-function showError(text) {
-  liveContent.innerHTML = '';
-  var p = document.createElement('p');
-  p.textContent = text;
-  liveContent.appendChild(p);
-}
-
-// turn a link inside a live page into a short live.html link on this site
+// turn a link inside a live page into a short link on this site
 function rewriteLink(link) {
   var href = link.getAttribute('href');
-  if (!href || /^(https?:|#)/.test(href)) return;
-  var resolved = new URL(href, 'https://x/' + livePath).pathname.slice(1);
-  link.setAttribute('href', shortAddress(resolved));
+  if (!href || /^(https?:|#|\?)/.test(href)) return;
+  var resolved = new URL(href, 'https://x/' + livePath);
+  link.setAttribute('href', shortAddress(resolved.pathname.slice(1), resolved.search));
 }
 
-function getServerAddress() {
+function showOffline() {
+  liveContent.innerHTML = '<div id="offline-message"><p><b>The live stats are offline right now.</b> ' +
+    'They run on a home computer, so this happens when it is off or restarting. Try again in a few minutes.</p>' +
+    '<p>Saved copies from November 2: <a href="archive/with-and-against.html">With and Against</a> · ' +
+    '<a href="archive/scores.html">Final scores</a></p></div>';
+}
+
+// the server address is remembered for this visit, so each click doesn't have to look it up again
+function remembered() { try { return sessionStorage.getItem('eggball-server'); } catch (e) { return null; } }
+function remember(url) { try { if (url) sessionStorage.setItem('eggball-server', url); else sessionStorage.removeItem('eggball-server'); } catch (e) {} }
+
+function lookUpServer() {
   return fetch(gistAddress, { cache: 'no-store' })
     .then(function (response) { return response.json(); })
     .then(function (gist) {
       var live = JSON.parse(gist.files['eggball-live.json'].content);
       if (!live.url || !/^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/.test(live.url)) throw new Error('no address');
+      remember(live.url);
       return live.url;
     });
 }
 
-getServerAddress()
-  .then(function (server) { return fetch(server + '/' + livePath, { cache: 'no-store' }); })
-  .then(function (response) {
+function fetchFrom(server, path) {
+  return fetch(server + '/' + path, { cache: 'no-store' }).then(function (response) {
     if (!response.ok) throw new Error('HTTP ' + response.status);
     return response.text();
-  })
-  .then(function (text) {
-    var page = new DOMParser().parseFromString(text, 'text/html');
-    document.title = page.title;
-    var style = page.querySelector('style');
-    if (style) document.getElementById('live-styles').textContent = style.textContent;
-    var nav = page.getElementById('page-tabs');
-    if (nav) nav.remove();
-    var scripts = Array.from(page.body.querySelectorAll('script'));
-    scripts.forEach(function (s) { s.remove(); });
-    page.body.querySelectorAll('a').forEach(rewriteLink);
-    liveContent.innerHTML = page.body.innerHTML;
-    // scripts added through innerHTML don't run, so add them again (sorting, minimum games filter)
-    scripts.forEach(function (s) {
-      var copy = document.createElement('script');
-      copy.textContent = s.textContent;
-      document.body.appendChild(copy);
-    });
-    window.scrollTo(0, 0);
-  })
-  .catch(function () {
-    showError('The live stats server is offline right now (it runs on a home computer). Try again later.');
   });
+}
+
+// fetch a live file; if the remembered address has stopped working, look the address up again once
+function fetchLive(path) {
+  var saved = remembered();
+  if (!saved) return lookUpServer().then(function (server) { return fetchFrom(server, path); });
+  return fetchFrom(saved, path).catch(function () {
+    remember(null);
+    return lookUpServer().then(function (server) { return fetchFrom(server, path); });
+  });
+}
+
+function showPage(text) {
+  var page = new DOMParser().parseFromString(text, 'text/html');
+  document.title = page.title;
+  var style = page.querySelector('style');
+  if (style) document.getElementById('live-styles').textContent = style.textContent.replace(/#page-tabs[^{]*\{[^}]*\}/g, '');
+  var nav = page.getElementById('page-tabs');
+  if (nav) nav.remove();
+  var scripts = Array.from(page.body.querySelectorAll('script'));
+  scripts.forEach(function (s) { s.remove(); });
+  page.body.querySelectorAll('a').forEach(rewriteLink);
+  liveContent.innerHTML = page.body.innerHTML;
+  // scripts added through innerHTML don't run, so add them again (sorting, filters, head to head)
+  scripts.forEach(function (s) {
+    var copy = document.createElement('script');
+    copy.textContent = s.textContent;
+    document.body.appendChild(copy);
+  });
+}
+
+fetchLive(livePath).then(showPage).catch(showOffline);
+
+// player search: names come from the live server, most games first
+var players = [];
+fetchLive('players.json').then(function (text) {
+  players = JSON.parse(text);
+  var list = document.getElementById('player-names');
+  players.forEach(function (p) { var o = document.createElement('option'); o.value = p[0]; list.appendChild(o); });
+}).catch(function () {});
+
+function findPlayer(text) {
+  var t = text.trim().toLowerCase();
+  if (!t) return null;
+  var exact = players.filter(function (p) { return p[0].toLowerCase() === t; });
+  if (exact.length) return exact[0];
+  var partial = players.filter(function (p) { return p[0].toLowerCase().indexOf(t) !== -1; });
+  return partial.length ? partial[0] : null;   // most games first
+}
+var search = document.getElementById('player-search'), searchMessage = document.getElementById('search-message');
+function goToPlayer(event) {
+  if (event) event.preventDefault();
+  var p = findPlayer(search.value);
+  if (p) location.href = '?player=' + p[1];
+  else if (search.value.trim()) searchMessage.textContent = players.length ? 'No player called that' : 'Player list not loaded';
+}
+document.getElementById('player-search-form').addEventListener('submit', goToPlayer);
+// picking a name from the suggestions goes straight there
+search.addEventListener('input', function () { searchMessage.textContent = ''; });
+search.addEventListener('change', function () {
+  var t = search.value.trim().toLowerCase();
+  if (players.some(function (p) { return p[0].toLowerCase() === t; })) goToPlayer();
+});
 </script>
 </body></html>

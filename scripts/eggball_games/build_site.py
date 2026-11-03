@@ -33,8 +33,9 @@ MERGE = {'Bambi1': 'Bambi', 'waoter': '3'}   # alt name -> main name, same as th
 MIN_GAMES = 20
 BIN = 10   # yards per expected-points bucket
 
-TABS = [('index.html', 'With and Against'), ('scores.html', 'Final scores: TPM vs playeggball'),
-        ('games.html', 'Games'), ('players.html', 'Players'), ('posters.html', 'Best and worst')]
+TABS = [('home.html', 'Home'), ('index.html', 'With and Against'), ('scores.html', 'Final scores: TPM vs playeggball'),
+        ('games.html', 'Games'), ('players.html', 'Players'), ('posters.html', 'Best and worst'),
+        ('compare.html', 'Head to head')]
 
 CSS = """
 body { font-family: sans-serif; margin: 16px; line-height: 1.4; }
@@ -50,7 +51,16 @@ table.sortable th { cursor: pointer; }
 tr.red-team td:first-child { border-left: 6px solid #d33; }
 tr.blue-team td:first-child { border-left: 6px solid #36c; }
 .explain { color: #444; max-width: 900px; }
-.wide { overflow-x: auto; }
+.wide { overflow-x: auto; max-width: 100%; }
+.win { color: #282; font-weight: bold; }
+.loss { color: #b22; font-weight: bold; }
+.form a { text-decoration: none; display: inline-block; width: 1.4em; text-align: center; border: 1px solid #ccc; margin-right: 2px; }
+.rating-chart { width: 100%; max-width: 720px; height: auto; border: 1px solid #ccc; background: #fff; }
+@media (max-width: 600px) {
+  body { margin: 8px; }
+  #page-tabs a { padding: 4px 8px; font-size: 0.9em; }
+  th, td { padding: 2px 4px; }
+}
 """
 
 SORT_JS = """<script>
@@ -400,7 +410,7 @@ def games_page(games, per):
 
 
 PLAYER_COLUMNS = [
-    ('Player', None), ('Min', 'minutes'), ('Goals', 'goals'), ('Assists', 'assists'),
+    ('Player', None), ('Min', 'minutes'), ('Game rating', None), ('Goals', 'goals'), ('Assists', 'assists'),
     ('2nd assists', 'second_assists'), ('Boat goals', 'boat_goals'), ('Boat passes', 'boat_passes'),
     ('Passes / throws', None), ('Possessions touched', 'possessions_touched'),
     ('Touched → scored', None), ('Avg passes to score', None),
@@ -437,7 +447,7 @@ def game_page(g, s, keys):
             name += ' (left)'
         touched = p['possessions_touched']
         rows.append(
-            f'<tr class="{p["team"]}-team"><td>{name}</td>' + cell(p['minutes']) + cell(p['goals']) + cell(p['assists'])
+            f'<tr class="{p["team"]}-team"><td>{name}</td>' + cell(p['minutes']) + cell(game_rating(p), 2) + cell(p['goals']) + cell(p['assists'])
             + cell(p['second_assists']) + cell(p['boat_goals']) + cell(p['boat_passes'])
             + f'<td data-v="{p["passes"]}">{p["passes"]}/{p["throws"]}</td>' + cell(touched)
             + cell(p['scoring_possessions_touched'] / touched if touched else None, as_pct=True)
@@ -448,6 +458,25 @@ def game_page(g, s, keys):
             + cell(p['saves']) + cell(p['box_points']) + '</tr>')
     head = ''.join(f'<th>{c}</th>' for c, _ in PLAYER_COLUMNS)
     names = g['name']
+    id_key = {i: k for k, q in game_players(g).items() for i in q['ids']}
+
+    def who(pid):
+        k = id_key.get(pid)
+        if pid is None:
+            return ''
+        if k in keys:
+            return f'<a href="../players/{file_key(k)}.html">{esc(names.get(pid, ""))}</a>'
+        return esc(names.get(pid, ''))
+
+    def link(k, p):
+        return f'<a href="../players/{file_key(k)}.html">{esc(p["name"])}</a>' if k in keys else esc(p['name'])
+    rated = sorted(((game_rating(p), k, p) for k, p in s['players'].items() if p['finished'] and p['minutes'] >= 5),
+                   key=lambda x: x[0])
+    stars = ''
+    if rated:
+        hi, lo = rated[-1], rated[0]
+        stars = (f'<p><span class="win">Best player of the game:</span> {link(hi[1], hi[2])} ({hi[2]["team"]}, rating {hi[0]:+.2f}) · '
+                 f'<span class="loss">Worst:</span> {link(lo[1], lo[2])} ({lo[2]["team"]}, rating {lo[0]:+.2f})</p>')
     kickoff = g['possessions'][0]['start'] if g['possessions'] else 0
 
     def clock(ms):
@@ -455,16 +484,18 @@ def game_page(g, s, keys):
         return f'{ms // 60000}:{ms // 1000 % 60:02d}'
     goal_rows = ''.join(
         f'<tr class="{x["team"]}-team"><td>{clock(x["time"])}</td><td>{x["red"]}–{x["blue"]}</td>'
-        f'<td>{esc(names.get(x["scorer"], ""))}</td><td>{esc(names.get(x["assist"], ""))}</td>'
-        f'<td>{esc(names.get(x["second_assist"], ""))}</td><td>{"yes" if x["boat"] else ""}</td>'
+        f'<td>{who(x["scorer"])}</td><td>{who(x["assist"])}</td>'
+        f'<td>{who(x["second_assist"])}</td><td>{"yes" if x["boat"] else ""}</td>'
         f'<td>{"" if x["passes"] is None else x["passes"]}</td>'
         f'<td>{num(x.get("possession_seconds"))}</td><td>{num(x.get("possession_start_yard"))}</td></tr>'
         for x in g['goals'])
-    body = (f'<h1>{info["score"]["red"]}–{info["score"]["blue"]}: {esc(info["map"])}, {when(g)}</h1>'
-            f'<p>Length {length(g)}. Winner: {esc(info["winner"] or "none")}'
-            f'{" (mercy)" if (g.get("over") or {}).get("mercy") else ""}. First goal: {esc(s["first"] or "none")}. '
-            f'Lead changes: {s["lead_changes"]}. <a href="../games.html">All games</a></p>'
-            + team_table
+    winner = info['winner']
+    headline = (f'{winner.capitalize()} wins {info["score"][winner]}–{info["score"]["blue" if winner == "red" else "red"]}'
+                if winner else f'Tied {info["score"]["red"]}–{info["score"]["blue"]}')
+    body = (f'<h1>{headline}{" (mercy)" if (g.get("over") or {}).get("mercy") else ""}</h1>'
+            f'<p><b>{when(g)}</b> · {esc(info["map"])} · length {length(g)} · red {info["score"]["red"]}, blue {info["score"]["blue"]} · '
+            f'first goal: {esc(s["first"] or "none")} · lead changes: {s["lead_changes"]} · <a href="../games.html">All games</a></p>'
+            + stars + team_table
             + '<div class="wide"><table class="sortable"><caption>Players (red rows first, then blue; click a heading to sort)</caption>'
             + f'<thead><tr>{head}</tr></thead><tbody>' + ''.join(rows) + '</tbody></table></div>'
             + '<table><caption>Goals (time since the opening kickoff)</caption><tr><th>Time</th><th>Score</th>'
@@ -484,7 +515,7 @@ def aggregate(games, per):
         for k, p in s['players'].items():
             a = total.setdefault(k, {'name': p['name'], 'games': 0, 'wins': 0, 'minutes': 0.0,
                                      'c': collections.Counter(), 'l': collections.defaultdict(list),
-                                     'team_rate_touched': 0.0, 'log': []})
+                                     'team_rate_touched': 0.0, 'log': [], 'ratings': []})
             a['name'] = p['name']
             if not p['finished']:
                 a['log'].append((g, p))
@@ -492,6 +523,8 @@ def aggregate(games, per):
             a['games'] += 1
             a['wins'] += p['team'] == winner
             a['minutes'] += p['minutes']
+            if p['minutes'] >= 5:
+                a['ratings'].append(game_rating(p))
             for f, v in p.items():
                 if isinstance(v, (int, float)) and not isinstance(v, bool) and f not in ('minutes',):
                     a['c'][f] += v or 0
@@ -505,6 +538,7 @@ def aggregate(games, per):
         touched = c['possessions_touched']
         a['row'] = {
             'games': a['games'], 'win_rate': a['wins'] / n if a['games'] else None,
+            'rating_pg': mean(a['ratings']),
             'goals_pg': c['goals'] / n, 'assists_pg': c['assists'] / n, 'second_assists_pg': c['second_assists'] / n,
             'involvement_pg': (c['goals'] + c['assists'] + c['second_assists']) / n,
             'boats_pg': (c['boat_goals'] + c['boat_passes']) / n,
@@ -531,7 +565,7 @@ def aggregate(games, per):
 
 
 AGG_COLUMNS = [
-    ('games', 'Games', 0, False), ('win_rate', 'Win %', 0, True),
+    ('games', 'Games', 0, False), ('win_rate', 'Win %', 0, True), ('rating_pg', 'Avg game rating', 2, False),
     ('goals_pg', 'Goals', 2, False), ('assists_pg', 'Assists', 2, False), ('second_assists_pg', '2nd assists', 2, False),
     ('involvement_pg', 'Goal involvement', 2, False), ('boats_pg', 'Boats (goals + passes)', 2, False),
     ('pass_rate', 'Pass completion', 0, True), ('touched_pg', 'Possessions touched', 1, False),
@@ -567,7 +601,12 @@ def players_page(total, table):
     ep_rows = ''.join(f'<tr><td>{b * BIN}–{b * BIN + BIN}</td><td>{v:.2f}</td><td>{n}</td></tr>'
                       for b, (v, n) in sorted(table.items()))
     boards = (
-        '<h2>Offense</h2><p class="explain">Only stats that don\'t depend on where players are. '
+        '<h2>Overall</h2><p class="explain"><b>Game rating</b> = points scored + ½ per assist + ¼ per second assist '
+        '+ expected points taken away by steals and interceptions − expected points given up by turnovers. '
+        'This is the average over every game they finished (5+ minutes).</p>'
+        + top_list(total, 'rating_pg', 'Best average game rating', True, 'per game')
+        + top_list(total, 'rating_pg', 'Worst average game rating', False, 'per game')
+        + '<h2>Offense</h2><p class="explain">Only stats that don\'t depend on where players are. '
         '"Goal involvement" = goals + assists + second assists per game. "vs average player" = how much more (or less) '
         'often possessions this player touched ended in a goal than possessions the average player touched.</p>'
         + top_list(total, 'involvement_pg', 'Most goal involvement', True, 'per game')
@@ -582,7 +621,8 @@ def players_page(total, table):
         + top_list(total, 'xp_taken_pg', 'Takes away the most (xP per game)', True, 'xP taken away')
         + top_list(total, 'net_turnover_xp_pg', 'Best net turnover value', True, 'taken − given')
         + top_list(total, 'net_turnover_xp_pg', 'Worst net turnover value', False, 'taken − given'))
-    body = (f'<h1>Eggball ranked players</h1><p>Lists rank players with at least {MIN_GAMES} finished games. '
+    body = (f'<h1>Eggball ranked players</h1><p><b>Who is best and worst at what.</b> Each list is the top or bottom 10 of players with at least {MIN_GAMES} finished games; '
+            'click a name for their profile. '
             f'Games a player left before the end don\'t count. Everything in the big table is per game unless it says otherwise. '
             f'Updated {datetime.datetime.now():%Y-%m-%d %H:%M}.</p>'
             + boards
@@ -667,7 +707,32 @@ def player_streaks(a):
     return best[True], best[False], run
 
 
-def player_page(k, a, per, keys):
+def rating_chart(rated):
+    """A plain line chart: one dot per game (oldest left), and the average of the last 10 games as a line."""
+    if len(rated) < 2:
+        return ''
+    w, h, pad = 720, 200, 30
+    ys = [x for x, _ in rated]
+    top, bottom = max(max(ys), 1), min(min(ys), -1)
+    def X(i): return pad + i * (w - 2 * pad) / (len(rated) - 1)
+    def Y(v): return pad / 2 + (top - v) * (h - pad) / (top - bottom)
+    dots = ''.join(f'<circle cx="{X(i):.1f}" cy="{Y(v):.1f}" r="2.5" fill="{"#3a3" if won else "#c44"}"><title>{when(g)}: {v:+.2f}</title></circle>'
+                   for i, (v, (g, won)) in enumerate(rated))
+    avg = []
+    for i in range(len(rated)):
+        window = ys[max(0, i - 9):i + 1]
+        avg.append(f'{X(i):.1f},{Y(sum(window) / len(window)):.1f}')
+    return (f'<svg class="rating-chart" viewBox="0 0 {w} {h}" role="img" aria-label="Game rating over time">'
+            f'<line x1="{pad}" x2="{w - pad}" y1="{Y(0):.1f}" y2="{Y(0):.1f}" stroke="#999" stroke-dasharray="4 3"/>'
+            f'<text x="2" y="{Y(0) + 4:.1f}" font-size="11">0</text>'
+            f'<text x="2" y="{Y(top) + 10:.1f}" font-size="11">{top:+.0f}</text>'
+            f'<text x="2" y="{Y(bottom):.1f}" font-size="11">{bottom:+.0f}</text>'
+            f'{dots}<polyline points="{" ".join(avg)}" fill="none" stroke="#36c" stroke-width="2"/></svg>'
+            '<p class="explain">Each dot is one game (green = won, red = lost), oldest on the left; '
+            'hover a dot for the date. The blue line is the average of the last 10 games.</p>')
+
+
+def player_page(k, a, per, keys, ranks):
     r = a['row']
     summary = ''.join(f'<tr><td>{label}</td>{cell(r[f], places, as_pct)}</tr>' for f, label, places, as_pct in AGG_COLUMNS)
 
@@ -688,6 +753,19 @@ def player_page(k, a, per, keys):
         cards.append(f'<div class="poster {kind}"><h3>{title}</h3><div class="poster-name">{len(run)} in a row</div>'
                      f'<div><a href="../games/{first["info"]["id"]}.html">{when(first)}</a> to '
                      f'<a href="../games/{last["info"]["id"]}.html">{when(last)}</a></div></div>')
+    finished = [(g, p) for g, p in a['log'] if p['finished'] and g['info']['winner']]
+    form = ''.join(f'<a class="{"win" if p["team"] == g["info"]["winner"] else "loss"}" href="../games/{g["info"]["id"]}.html" '
+                   f'title="{when(g)}">{"W" if p["team"] == g["info"]["winner"] else "L"}</a>' for g, p in finished[-10:])
+    chart = rating_chart([(game_rating(p), (g, p['team'] == g['info']['winner']))
+                          for g, p in a['log'] if p['finished'] and p['minutes'] >= 5])
+    if r['rating_pg'] is None:
+        rating_line = ''
+    elif k in ranks:
+        rating_line = (f'Average game rating <b>{r["rating_pg"]:+.2f}</b>, '
+                       f'<b>{ranks[k][0]}</b> of {ranks[k][1]} players with {MIN_GAMES}+ games.')
+    else:
+        rating_line = (f'Average game rating <b>{r["rating_pg"]:+.2f}</b> '
+                       f'(ranked once they have {MIN_GAMES} finished games).')
     current = (f'Current streak: {len(now_run)} {"win" if now_run[0][1] else "loss"}{"" if len(now_run) == 1 else ("s" if now_run[0][1] else "es")} in a row.'
                if now_run else '')
 
@@ -710,14 +788,18 @@ def player_page(k, a, per, keys):
             f'<p><b>{a["wins"]} wins, {losses} losses</b> ({a["wins"] / max(a["games"], 1):.0%}) in {a["games"]} finished ranked games'
             f'{left}. {current} '
             '<a href="../players.html">All players</a></p>'
-            '<h2>Best and worst</h2><p class="explain"><b>Game rating</b> = points scored + ½ per assist + ¼ per second assist '
+            f'<p>{rating_line}</p>'
+            + (f'<p class="form">Last {len(finished[-10:])} games, oldest first: {form}</p>' if form else '')
+            + '<h2>Best and worst</h2><p class="explain"><b>Game rating</b> = points scored + ½ per assist + ¼ per second assist '
             '+ expected points taken away − expected points given up (only games they finished, 5+ minutes). '
             'Streaks count only games they finished.</p>' + ''.join(cards)
+            + '<h2>Game rating over time</h2>' + (chart or '<p>Not enough games yet.</p>')
             + f'<h2>Stats</h2><table><caption>Per game</caption>{summary}</table>'
             + '<h2>With and against</h2><p class="explain">Their wins and losses with each teammate and against each opponent. '
             'Only players still in the game at the end count, on the team they finished on. Click a heading to sort.</p>'
             + best_worst_pairs(a['name'], withs, against, keys)
-            + '<div class="pair-tables">' + pair_table('With each teammate', withs, keys)
+            + f'<p><a href="../compare.html?a={file_key(k)}">Compare {esc(a["name"])} head to head with someone</a></p>'
+            + '<div class="pair-tables">' + pair_table('With each teammate (most games together first)', withs, keys)
             + pair_table('Against each opponent', against, keys) + '</div>'
             + '<h2>Every game</h2>'
             '<div class="wide"><table class="sortable"><caption>Newest first. Click a date to see the game.</caption><thead><tr><th>Date</th><th>Result</th>'
@@ -743,7 +825,7 @@ def game_rating(p):
 
 
 POSTER_CSS = """
-.poster { display: inline-block; vertical-align: top; width: 330px; margin: 0 14px 18px 0; padding: 12px 16px;
+.poster { display: inline-block; vertical-align: top; width: 330px; max-width: 100%; box-sizing: border-box; margin: 0 14px 18px 0; padding: 12px 16px;
           border: 4px solid #333; background: #fffbea; }
 .poster.worst { background: #fdeeee; border-color: #a33; }
 .poster.best { background: #eef8ee; border-color: #383; }
@@ -858,6 +940,157 @@ def posters_page(games, per, keys):
     return text.replace('</style>', POSTER_CSS + '</style>', 1)
 
 
+def home_page(games, per, total, keys):
+    """Today at a glance: today's games, best and worst stat lines today, who is on a streak, the latest results."""
+    now = datetime.datetime.now()
+    today = [g for g in games if datetime.datetime.fromtimestamp(g['info']['at'] / 1000).date() == now.date()]
+    parts = [f'<h1>Eggball ranked: today</h1><p class="explain">Stats from every ranked game on playeggball.com, '
+             f'updated every 10 minutes while games are being played (every 30 minutes when they are not). '
+             f'Last updated {now:%Y-%m-%d %H:%M} (Pacific time).</p>']
+    if today:
+        goals = sum(g['info']['score']['red'] + g['info']['score']['blue'] for g in today)
+        people = {k for g in today for k, p in per[g['info']['id']]['players'].items() if p['finished']}
+        parts.append(f'<p><b>{len(today)} games today</b>, {goals} goals, {len(people)} different players.</p>')
+        entries = [(game_rating(p), g, k, p) for g in today for k, p in per[g['info']['id']]['players'].items()
+                   if p['finished'] and p['minutes'] >= 5]
+        if entries:
+            hi = max(entries, key=lambda e: e[0])
+            lo = min(entries, key=lambda e: e[0])
+            parts.append(poster('best', 'today', hi[0], hi[1], hi[2], hi[3], keys)
+                         + poster('worst', 'today', lo[0], lo[1], lo[2], lo[3], keys))
+    else:
+        parts.append('<p><b>No ranked games yet today.</b></p>')
+
+    # streaks still going, for players seen in the last 7 days
+    recent = now - datetime.timedelta(days=7)
+    going = []
+    for k, a in total.items():
+        win_run, loss_run, run = player_streaks(a)
+        if len(run) >= 2 and datetime.datetime.fromtimestamp(run[-1][0]['info']['at'] / 1000) >= recent:
+            going.append((len(run), run[-1][1], k, a))
+
+    def streak_table(won, title):
+        rows = sorted((x for x in going if x[1] == won), key=lambda x: (-x[0], x[3]['name'].lower()))[:8]
+        body = ''.join(f'<tr><td><a href="players/{file_key(k)}.html">{esc(a["name"])}</a></td><td>{n}</td></tr>'
+                       for n, _, k, a in rows) or '<tr><td colspan="2">No one</td></tr>'
+        return (f'<table style="display:inline-table; margin-right:18px; vertical-align:top"><caption>{title}</caption>'
+                f'<tr><th>Player</th><th>In a row</th></tr>{body}</table>')
+    parts.append('<h2>Streaks going right now</h2><p class="explain">Players who played in the last 7 days, '
+                 'counting games they finished. Two or more in a row.</p>'
+                 + streak_table(True, 'Winning streaks') + streak_table(False, 'Losing streaks'))
+
+    rows = []
+    for g in list(reversed(games))[:15]:
+        info, ps = g['info'], per[g['info']['id']]['players']
+        rated = [(game_rating(p), k, p) for k, p in ps.items() if p['finished'] and p['minutes'] >= 5]
+        star = ''
+        if rated:
+            r, k, p = max(rated, key=lambda x: x[0])
+            star = (f'<a href="players/{file_key(k)}.html">{esc(p["name"])}</a> ({r:+.2f})' if k in keys else esc(p['name']))
+        winner = info['winner'] or ''
+        rows.append(f'<tr class="{winner}-team"><td><a href="games/{info["id"]}.html">{when(g)}</a></td>'
+                    f'<td>{winner}</td><td>{info["score"]["red"]}–{info["score"]["blue"]}</td><td>{length(g)}</td><td>{star}</td></tr>')
+    parts.append('<h2>Latest games</h2><table><tr><th>Date</th><th>Winner</th><th>Score (red–blue)</th>'
+                 '<th>Length</th><th>Best player</th></tr>' + ''.join(rows) + '</table>'
+                 '<p><a href="games.html">Every game</a> · <a href="players.html">Every player</a> · '
+                 '<a href="posters.html">Best and worst of all time</a> · <a href="compare.html">Head to head</a></p>')
+    text = page('Eggball Ranked Stats', 'home.html', '\n'.join(parts))
+    return text.replace('</style>', POSTER_CSS + '</style>', 1)
+
+
+def compare_page(games, per, total):
+    """Pick two players: their record together and against each other, and their stats side by side.
+    The page does the counting itself from a small table of every game."""
+    order = sorted((k for k, a in total.items() if a['games']), key=lambda k: -total[k]['games'])
+    index = {k: i for i, k in enumerate(order)}
+    columns = [(f, label, places, as_pct) for f, label, places, as_pct in AGG_COLUMNS]
+
+    def shown(v, places, as_pct):
+        if v is None:
+            return ''
+        return pct(v) if as_pct else num(v, places)
+    players = [[total[k]['name'], file_key(k), [shown(total[k]['row'][f], pl, ap) for f, _, pl, ap in columns]]
+               for k in order]
+    rows = []
+    for g in games:
+        info = g['info']
+        if not info['winner']:
+            continue
+        line = [[index[k], 0 if p['team'] == 'red' else 1, round(game_rating(p), 2)]
+                for k, p in per[info['id']]['players'].items() if p['finished'] and k in index]
+        rows.append([info['id'], when(g), 0 if info['winner'] == 'red' else 1,
+                     f'{info["score"]["red"]}–{info["score"]["blue"]}', line])
+    data = json.dumps({'players': players, 'columns': [label for _, label, _, _ in columns], 'games': rows},
+                      separators=(',', ':')).replace('</', '<\\/')
+    body = ('<h1>Head to head</h1><p class="explain">Pick two players to see how they do on the same team and against each other. '
+            'Only games both of them finished count. Wins and losses are the first player\'s.</p>'
+            '<p><label>First player <select id="first-player"></select></label> '
+            '<label>Second player <select id="second-player"></select></label> '
+            '<button id="swap-players">Swap</button></p>'
+            '<div id="compare-result"></div>'
+            '<script>\nvar COMPARE = ' + data + ';\n' + r"""
+(function () {
+  var inLoader = !!window.EGGBALL_LOADER;   // the GitHub page that loads this one sets this
+  function playerLink(i) {
+    var p = COMPARE.players[i];
+    var href = inLoader ? '?player=' + p[1] : 'players/' + p[1] + '.html';
+    return '<a href="' + href + '">' + esc(p[0]) + '</a>';
+  }
+  function gameLink(id, text) { return '<a href="' + (inLoader ? '?game=' + id : 'games/' + id + '.html') + '">' + text + '</a>'; }
+  function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+  var first = document.getElementById('first-player'), second = document.getElementById('second-player');
+  COMPARE.players.forEach(function (p, i) {
+    first.add(new Option(p[0], i));
+    second.add(new Option(p[0], i));
+  });
+  var query = new URLSearchParams(location.search);
+  function find(file, fallback) {
+    for (var i = 0; i < COMPARE.players.length; i++) if (COMPARE.players[i][1] === file) return i;
+    return fallback;
+  }
+  first.value = find(query.get('a'), 0);
+  second.value = find(query.get('b'), first.value === '0' ? 1 : 0);
+
+  function show() {
+    var a = +first.value, b = +second.value, out = document.getElementById('compare-result');
+    var q = new URLSearchParams(location.search);
+    q.set('a', COMPARE.players[a][1]); q.set('b', COMPARE.players[b][1]);
+    history.replaceState(null, '', '?' + q.toString());
+    if (a === b) { out.innerHTML = '<p>Pick two different players.</p>'; return; }
+    var together = [0, 0], against = [0, 0], list = [];
+    COMPARE.games.forEach(function (g) {
+      var pa = null, pb = null;
+      g[4].forEach(function (x) { if (x[0] === a) pa = x; if (x[0] === b) pb = x; });
+      if (!pa || !pb) return;
+      var won = pa[1] === g[2], same = pa[1] === pb[1];
+      (same ? together : against)[won ? 0 : 1]++;
+      list.push([g, same, won, pa[2], pb[2]]);
+    });
+    function rec(r) { return r[0] + r[1] ? r[0] + '–' + r[1] + ' (' + Math.round(100 * r[0] / (r[0] + r[1])) + '%)' : 'no games'; }
+    var A = playerLink(a), B = playerLink(b);
+    var html = '<table><caption>Records (' + esc(COMPARE.players[a][0]) + '\'s wins and losses)</caption>' +
+      '<tr><td>Same team</td><td>' + rec(together) + '</td></tr>' +
+      '<tr><td>' + A + ' against ' + B + '</td><td>' + rec(against) + '</td></tr></table>';
+    html += '<table><caption>Stats per game, all their games</caption><tr><th></th><th>' + A + '</th><th>' + B + '</th></tr>' +
+      COMPARE.columns.map(function (c, i) {
+        return '<tr><td>' + esc(c) + '</td><td>' + COMPARE.players[a][2][i] + '</td><td>' + COMPARE.players[b][2][i] + '</td></tr>';
+      }).join('') + '</table>';
+    html += '<table><caption>Their games together, newest first (game rating for each)</caption><tr><th>Date</th><th>Score (red–blue)</th>' +
+      '<th>Teams</th><th>' + esc(COMPARE.players[a][0]) + '</th><th>' + A + ' rating</th><th>' + B + ' rating</th></tr>' +
+      (list.reverse().map(function (x) {
+        return '<tr><td>' + gameLink(x[0][0], x[0][1]) + '</td><td>' + x[0][3] + '</td><td>' + (x[1] ? 'same team' : 'against') +
+          '</td><td class="' + (x[2] ? 'win">won' : 'loss">lost') + '</td><td>' + x[3].toFixed(2) + '</td><td>' + x[4].toFixed(2) + '</td></tr>';
+      }).join('') || '<tr><td colspan="6">They have not finished a game together.</td></tr>') + '</table>';
+    out.innerHTML = html;
+  }
+  first.onchange = second.onchange = show;
+  document.getElementById('swap-players').onclick = function () { var t = first.value; first.value = second.value; second.value = t; show(); };
+  show();
+})();
+</script>""")
+    return page('Eggball Head to Head', 'compare.html', body)
+
+
 def main():
     games = load_games()
     for g in games:
@@ -881,8 +1114,17 @@ def main():
         write(f'games/{g["info"]["id"]}.html', game_page(g, per[g['info']['id']], keys))
     write('players.html', players_page(total, table))
     write('posters.html', posters_page(games, per, keys))
+    write('home.html', home_page(games, per, total, keys))
+    write('compare.html', compare_page(games, per, total))
+    # for the search box and the With and Against page: every player's name and page, most games first
+    order = sorted((k for k in total), key=lambda k: -len(total[k]['log']))
+    write('players.json', json.dumps([[total[k]['name'], file_key(k)] for k in order]))
+    write('profile_files.json', json.dumps({k: file_key(k) for k in total}))
+    ranked = sorted((k for k, a in total.items() if a['games'] >= MIN_GAMES and a['row']['rating_pg'] is not None),
+                    key=lambda k: -total[k]['row']['rating_pg'])
+    ranks = {k: (i + 1, len(ranked)) for i, k in enumerate(ranked)}
     for k, a in total.items():
-        write(f'players/{file_key(k)}.html', player_page(k, a, per, keys))
+        write(f'players/{file_key(k)}.html', player_page(k, a, per, keys, ranks))
     # drop pages left from before (old account-id names, or a player who changed name)
     wanted = {file_key(k) + '.html' for k in total}
     for f in os.listdir(os.path.join(SITE, 'players')):

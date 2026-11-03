@@ -42,7 +42,13 @@ for g in sorted(games, key=lambda g: g["at"]):
         teams[t].append(index[k])
     rows.append([g["at"], g["winner"], teams["red"], teams["blue"]])
 
-data = {"players": names, "games": rows}
+# each player's profile page on the live site (written by eggball_games/build_site.py), so names can link to it
+profile_path = os.path.expanduser(os.environ.get("EGGBALL_PROFILE_FILES", "~/eggball-live/site/profile_files.json"))
+profile_files = json.load(open(profile_path)) if os.path.exists(profile_path) else {}
+files = [""] * len(names)
+for k, i in index.items():
+    files[i] = profile_files.get(k, "")
+data = {"players": names, "files": files, "games": rows}
 
 html = """<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -68,6 +74,8 @@ th { cursor: pointer; background: #eee; user-select: none; white-space: nowrap; 
 #context-bar { position: sticky; top: 0; z-index: 1; background: #fff; border-bottom: 2px solid #999; padding: 6px 0; margin-bottom: 8px; }
 #context-player { font-size: 1.2em; font-weight: bold; }
 td a { cursor: pointer; color: #06c; }
+#context-player a { color: #000; }
+@media (max-width: 600px) { body { margin: 8px; } #page-tabs a { padding: 4px 8px; font-size: 0.9em; } th, td { padding: 2px 4px; } table { margin-right: 0; } }
 #page-tabs { margin-bottom: 12px; border-bottom: 2px solid #999; }
 #page-tabs a { display: inline-block; padding: 6px 14px; border: 1px solid #999; border-bottom: none; text-decoration: none; color: #06c; }
 #page-tabs a.current-tab { background: #ddd; color: #000; font-weight: bold; }
@@ -94,6 +102,9 @@ td a { cursor: pointer; color: #06c; }
 <script>
 const DATA = __DATA__;
 const $ = (id) => document.getElementById(id);
+// the GitHub page that loads this one sets EGGBALL_LOADER; there a profile is ?player=<name>
+const profileHref = (p) => DATA.files && DATA.files[p] ? (window.EGGBALL_LOADER ? '?player=' : 'players/') + DATA.files[p] + (window.EGGBALL_LOADER ? '' : '.html') : null;
+const profileLink = (p) => { const h = profileHref(p); return h ? '<a class="profile-link" href="' + h + '">' + esc(DATA.players[p]) + '</a>' : esc(DATA.players[p]); };
 const day = (t) => new Date(t).toLocaleDateString();
 const first = DATA.games[0][0], last = DATA.games[DATA.games.length - 1][0];
 $('about').textContent = DATA.games.length + ' ranked games on playeggball.com, ' + day(first) + ' to ' + day(last) +
@@ -128,9 +139,10 @@ function count(games) {
 }
 
 const pct = (w, l) => w + l ? (100 * w / (w + l)).toFixed(0) + '%' : '';
-const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
 function fill(id, rows, linkNames) {
+  // linkNames: names select that player here; otherwise names open their profile
   // rows: [player index, wins, losses]
   const t = $(id), [col, dir] = sorts[id];
   t.tHead.innerHTML = '<tr>' + COLS.map((c, i) => '<th data-col="' + i + '">' + (i === 0 ? esc(FIRST_COL[id]()) : c) + (i === col ? (dir > 0 ? ' ▲' : ' ▼') : '') + '</th>').join('') + '</tr>';
@@ -138,7 +150,7 @@ function fill(id, rows, linkNames) {
   const byName = (a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' });
   r.sort((a, b) => (col === 0 ? byName(a, b) * dir : (a[col] - b[col]) * dir) || b[1] - a[1] || byName(a, b));
   t.tBodies[0].innerHTML = r.length ? r.map(([n, g, w, l, , p]) =>
-    '<tr><td>' + (linkNames ? '<a data-player="' + p + '">' + esc(n) + '</a>' : esc(n)) + '</td><td>' + g + '</td><td>' + w + '</td><td>' + l + '</td><td>' + pct(w, l) + '</td></tr>').join('')
+    '<tr><td>' + (linkNames ? '<a data-player="' + p + '">' + esc(n) + '</a>' : profileLink(p)) + '</td><td>' + g + '</td><td>' + w + '</td><td>' + l + '</td><td>' + pct(w, l) + '</td></tr>').join('')
     : '<tr><td colspan="5">No one matches the filters</td></tr>';
 }
 
@@ -161,7 +173,7 @@ function fillBestWorst(who, withRows, againstRows) {
   t.tBodies[0].innerHTML = [['Best with', withRows, true, 'with-row'], ['Worst with', withRows, false, 'with-row'],
     ['Best against', againstRows, true, 'against-row'], ['Worst against', againstRows, false, 'against-row']].map(([label, rows, best, cls]) => {
     const r = pick(rows, best);
-    return '<tr class="' + cls + '"><td>' + label + '</td>' + (r ? '<td>' + esc(DATA.players[r[0]]) + '</td><td>' + (r[1] - r[2] > 0 ? '+' : '') + (r[1] - r[2]) + '</td><td>' + (r[1] + r[2]) + '</td><td>' + r[1] + '</td><td>' + r[2] + '</td><td>' + pct(r[1], r[2]) + '</td>'
+    return '<tr class="' + cls + '"><td>' + label + '</td>' + (r ? '<td>' + profileLink(r[0]) + '</td><td>' + (r[1] - r[2] > 0 ? '+' : '') + (r[1] - r[2]) + '</td><td>' + (r[1] + r[2]) + '</td><td>' + r[1] + '</td><td>' + r[2] + '</td><td>' + pct(r[1], r[2]) + '</td>'
       : '<td colspan="6">No one</td>') + '</tr>';
   }).join('');
 }
@@ -191,7 +203,7 @@ function show() {
   const pairs = (m) => [...m].filter(([k]) => +k.split(',')[0] === selected)
     .map(([k, [w, l]]) => [+k.split(',')[1], w, l]).filter(([p, w, l]) => w + l >= min && nameOk(p));
   const who = selected === null ? '' : DATA.players[selected];
-  $('context-player').textContent = who;
+  $('context-player').innerHTML = selected === null ? '' : profileLink(selected) + (profileHref(selected) ? ' <small>(click for their profile)</small>' : '');
   $('with-table').caption.textContent = who + ' WITH each teammate (' + who + '\\'s wins and losses)';
   $('against-table').caption.textContent = who + ' AGAINST each opponent (' + who + '\\'s wins and losses)';
   $('all-players-table').caption.textContent = 'All players, own wins and losses (click a name to select them)';

@@ -20,8 +20,10 @@ fi
 touch "$LAST_RUN"
 echo "$(date '+%F %T') newest game $QUIET minutes ago: updating"
 python3 -u "$SCRIPTS/fetch_playeggball_replays.py" "$DATA"
-export EGGBALL_EXTRA_TABS='<a href="games.html">Games</a> <a href="players.html">Players</a>'
+# the game and player pages first: they write profile_files.json, which the With and Against page links names with
+python3 "$SCRIPTS/eggball_games/build_site.py" "$SITE"
+export EGGBALL_EXTRA_TABS='<a href="games.html">Games</a> <a href="players.html">Players</a> <a href="posters.html">Best and worst</a> <a href="compare.html">Head to head</a>'
+export EGGBALL_PROFILE_FILES="$SITE/profile_files.json"
 python3 "$SCRIPTS/playeggball_with_against.py" "$DATA"
 cp "$DATA/with_against.html" "$SITE/index.html.tmp" && mv "$SITE/index.html.tmp" "$SITE/index.html"
 python3 "$SCRIPTS/eggball_score_comparison.py" "$SITE/scores.html"
-python3 "$SCRIPTS/eggball_games/build_site.py" "$SITE"
