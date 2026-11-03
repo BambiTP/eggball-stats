@@ -588,28 +588,131 @@ applyMinimumGames();
     return page('Eggball Players', 'players.html', body)
 
 
-def player_page(k, a):
+def with_against(k, a, per):
+    """Teammates and opponents of player k in their finished games: key -> [name, wins, losses].
+    Same rules as the With and Against page: only players still in the game at the end, on the team they finished on."""
+    withs, against = {}, {}
+    for g, p in a['log']:
+        if not p['finished'] or not g['info']['winner']:
+            continue
+        won = p['team'] == g['info']['winner']
+        for k2, q in per[g['info']['id']]['players'].items():
+            if k2 == k or not q['finished']:
+                continue
+            r = (withs if q['team'] == p['team'] else against).setdefault(k2, [q['name'], 0, 0])
+            r[0] = q['name']
+            r[1 if won else 2] += 1
+    return withs, against
+
+
+def pair_table(title, rows, keys):
+    body = ''.join(
+        f'<tr><td>' + (f'<a href="{file_key(k2)}.html">{esc(n)}</a>' if k2 in keys else esc(n)) + '</td>'
+        f'<td data-v="{w + l}">{w + l}</td><td data-v="{w}">{w}</td><td data-v="{l}">{l}</td>'
+        f'<td data-v="{w - l}">{w - l:+d}</td><td data-v="{w / (w + l)}">{w / (w + l):.0%}</td></tr>'
+        for k2, (n, w, l) in sorted(rows.items(), key=lambda x: (-(x[1][1] + x[1][2]), x[1][0].lower())))
+    return (f'<table class="sortable pair-table"><caption>{title}</caption><thead><tr><th>Player</th><th>Games</th>'
+            f'<th>Wins</th><th>Losses</th><th>+/-</th><th>Win %</th></tr></thead><tbody>{body}</tbody></table>')
+
+
+def best_worst_pairs(name, withs, against, keys):
+    """Best and worst teammate and opponent by plus/minus (wins minus losses), ties to the better or worse win %."""
+    def pick(rows, best):
+        if not rows:
+            return None
+        side = 1 if best else -1
+        return max(rows.items(), key=lambda x: (side * (x[1][1] - x[1][2]), side * x[1][1] / (x[1][1] + x[1][2])))
+    out = []
+    for label, rows, best in (('Best with', withs, True), ('Worst with', withs, False),
+                              ('Best against', against, True), ('Worst against', against, False)):
+        r = pick(rows, best)
+        if r is None:
+            out.append(f'<tr><td>{label}</td><td colspan="5">No one</td></tr>')
+            continue
+        k2, (n, w, l) = r
+        link = f'<a href="{file_key(k2)}.html">{esc(n)}</a>' if k2 in keys else esc(n)
+        out.append(f'<tr><td>{label}</td><td>{link}</td><td>{w - l:+d}</td><td>{w + l}</td><td>{w}–{l}</td><td>{w / (w + l):.0%}</td></tr>')
+    return (f'<table><caption>{esc(name)}: best and worst teammates and opponents (by wins minus losses together)</caption>'
+            '<tr><th></th><th>Player</th><th>+/-</th><th>Games</th><th>Won–lost</th><th>Win %</th></tr>' + ''.join(out) + '</table>')
+
+
+def player_streaks(a):
+    """Longest win streak, longest losing streak and the current streak, over finished games."""
+    results = [(g, p['team'] == g['info']['winner']) for g, p in a['log'] if p['finished'] and g['info']['winner']]
+    best = {True: [], False: []}
+    run = []
+    for g, won in results:
+        run = run + [(g, won)] if run and run[-1][1] == won else [(g, won)]
+        if len(run) > len(best[won]):
+            best[won] = list(run)
+    return best[True], best[False], run
+
+
+def player_page(k, a, per, keys):
     r = a['row']
     summary = ''.join(f'<tr><td>{label}</td>{cell(r[f], places, as_pct)}</tr>' for f, label, places, as_pct in AGG_COLUMNS)
+
+    # best and worst single game, same game rating as the Best and worst page
+    rated = [(game_rating(p), g, p) for g, p in a['log'] if p['finished'] and p['minutes'] >= 5]
+    cards = []
+    if rated:
+        top = max(rated, key=lambda x: x[0])
+        low = min(rated, key=lambda x: x[0])
+        cards.append(poster('best', 'their career', top[0], top[1], k, top[2], keys, up='../'))
+        cards.append(poster('worst', 'their career', low[0], low[1], k, low[2], keys, up='../'))
+    win_run, loss_run, now_run = player_streaks(a)
+    for run, kind, title in ((win_run, 'best', 'Best win streak'), (loss_run, 'worst', 'Worst losing streak')):
+        if not run:
+            cards.append(f'<div class="poster {kind}"><h3>{title}</h3><div class="poster-rating">None yet</div></div>')
+            continue
+        first, last = run[0][0], run[-1][0]
+        cards.append(f'<div class="poster {kind}"><h3>{title}</h3><div class="poster-name">{len(run)} in a row</div>'
+                     f'<div><a href="../games/{first["info"]["id"]}.html">{when(first)}</a> to '
+                     f'<a href="../games/{last["info"]["id"]}.html">{when(last)}</a></div></div>')
+    current = (f'Current streak: {len(now_run)} {"win" if now_run[0][1] else "loss"}{"" if len(now_run) == 1 else ("s" if now_run[0][1] else "es")} in a row.'
+               if now_run else '')
+
+    withs, against = with_against(k, a, per)
     rows = []
     for g, p in reversed(a['log']):
         info, l = g['info'], p['lists']
         result = 'left' if not p['finished'] else ('won' if p['team'] == info['winner'] else 'lost')
+        rating = game_rating(p) if p['finished'] else None
         rows.append(
             f'<tr class="{p["team"]}-team"><td data-v="{info["at"]}"><a href="../games/{info["id"]}.html">{when(g)}</a></td>'
-            f'<td>{result}</td><td>{info["score"]["red"]}–{info["score"]["blue"]}</td>' + cell(p['goals']) + cell(p['assists'])
+            f'<td>{result}</td><td>{info["score"]["red"]}–{info["score"]["blue"]}</td>' + cell(rating, 2) + cell(p['goals']) + cell(p['assists'])
             + cell(p['second_assists']) + f'<td data-v="{p["passes"]}">{p["passes"]}/{p["throws"]}</td>'
             + cell(p['possessions_touched']) + cell(p['turnovers']) + cell(sum(l['xpoints_given']), 2)
             + cell(p['points_given']) + cell(p['steals']) + cell(p['interceptions']) + cell(sum(l['xpoints_taken']), 2) + '</tr>')
-    body = (f'<h1>{esc(a["name"])}</h1><p>{a["games"]} finished ranked games, {a["wins"]} won. '
+    losses = a['games'] - a['wins']
+    left_count = len(a['log']) - a['games']
+    left = f', plus {left_count} they left early' if left_count else ''
+    body = (f'<h1>{esc(a["name"])}</h1>'
+            f'<p><b>{a["wins"]} wins, {losses} losses</b> ({a["wins"] / max(a["games"], 1):.0%}) in {a["games"]} finished ranked games'
+            f'{left}. {current} '
             '<a href="../players.html">All players</a></p>'
-            f'<table><caption>Per game</caption>{summary}</table>'
-            '<div class="wide"><table class="sortable"><caption>Every game (newest first)</caption><thead><tr><th>Date</th><th>Result</th>'
-            '<th>Score (red–blue)</th><th>Goals</th><th>Assists</th><th>2nd assists</th><th>Passes / throws</th>'
+            '<h2>Best and worst</h2><p class="explain"><b>Game rating</b> = points scored + ½ per assist + ¼ per second assist '
+            '+ expected points taken away − expected points given up (only games they finished, 5+ minutes). '
+            'Streaks count only games they finished.</p>' + ''.join(cards)
+            + f'<h2>Stats</h2><table><caption>Per game</caption>{summary}</table>'
+            + '<h2>With and against</h2><p class="explain">Their wins and losses with each teammate and against each opponent. '
+            'Only players still in the game at the end count, on the team they finished on. Click a heading to sort.</p>'
+            + best_worst_pairs(a['name'], withs, against, keys)
+            + '<div class="pair-tables">' + pair_table('With each teammate', withs, keys)
+            + pair_table('Against each opponent', against, keys) + '</div>'
+            + '<h2>Every game</h2>'
+            '<div class="wide"><table class="sortable"><caption>Newest first. Click a date to see the game.</caption><thead><tr><th>Date</th><th>Result</th>'
+            '<th>Score (red–blue)</th><th>Game rating</th><th>Goals</th><th>Assists</th><th>2nd assists</th><th>Passes / throws</th>'
             '<th>Possessions touched</th><th>Turnovers</th><th>xP given up</th><th>Points given up</th><th>Steals</th>'
             '<th>Interceptions</th><th>xP taken away</th></tr></thead><tbody>' + ''.join(rows) + '</tbody></table></div>'
             + DEFINITIONS)
-    return page(f'{a["name"]} – Eggball', None, body, depth=1)
+    text = page(f'{a["name"]} – Eggball', None, body, depth=1)
+    return text.replace('</style>', POSTER_CSS + PROFILE_CSS + '</style>', 1)
+
+
+PROFILE_CSS = """
+.pair-table { display: inline-table; vertical-align: top; margin-right: 24px; }
+"""
 
 
 def game_rating(p):
@@ -633,10 +736,10 @@ POSTER_CSS = """
 """
 
 
-def poster(kind, period, rating, g, k, p, keys):
+def poster(kind, period, rating, g, k, p, keys, up=''):
     info, l = g['info'], p['lists']
     result = 'won' if p['team'] == info['winner'] else 'lost'
-    name = f'<a href="players/{file_key(k)}.html">{esc(p["name"])}</a>' if k in keys else esc(p['name'])
+    name = f'<a href="{up}players/{file_key(k)}.html">{esc(p["name"])}</a>' if k in keys else esc(p['name'])
     lines = [('Goals', p['goals']), ('Assists', p['assists']), ('2nd assists', p['second_assists']),
              ('Passes / throws', f'{p["passes"]}/{p["throws"]}'),
              ('Turnovers', f'{p["turnovers"]} ({p["sacked"]} sacked, {p["throws_lost"]} throws lost)'),
@@ -649,7 +752,7 @@ def poster(kind, period, rating, g, k, p, keys):
             f'<div class="poster-name">{name}</div>'
             f'<div class="poster-rating">Game rating {rating:+.2f}</div>'
             f'<div>{p["team"].capitalize()}, {result} {info["score"]["red"]}–{info["score"]["blue"]} (red–blue), '
-            f'<a href="games/{info["id"]}.html">{when(g)}</a></div>'
+            f'<a href="{up}games/{info["id"]}.html">{when(g)}</a></div>'
             f'<table>{rows}</table></div>')
 
 
@@ -759,7 +862,7 @@ def main():
     write('players.html', players_page(total, table))
     write('posters.html', posters_page(games, per, keys))
     for k, a in total.items():
-        write(f'players/{file_key(k)}.html', player_page(k, a))
+        write(f'players/{file_key(k)}.html', player_page(k, a, per, keys))
     print(f'{len(games)} games, {len(total)} players -> {SITE}')
 
 
