@@ -1,0 +1,28 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eggball Live Stats</title>
+<style>
+body { font-family: sans-serif; margin: 16px; }
+</style></head><body>
+<h1>Eggball live stats</h1>
+<p id="live-status">Finding the live stats server…</p>
+<p>The live site has every ranked game and every player's stats, updated every 10 minutes.
+It runs on a home computer, so its address changes now and then; this page looks up the current one.</p>
+<script>
+// the live server writes its current address into this gist (see tunnel.py)
+var gistAddress = 'https://api.github.com/gists/a591c82f75da2b09bdd7cb6b98b77db5';
+var liveStatus = document.getElementById('live-status');
+fetch(gistAddress, { cache: 'no-store' })
+  .then(function (response) { return response.json(); })
+  .then(function (gist) {
+    var live = JSON.parse(gist.files['eggball-live.json'].content);
+    if (!live.url || !/^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/.test(live.url)) throw new Error('no address');
+    var target = live.url + '/' + (location.hash ? location.hash.slice(1) : 'games.html');
+    liveStatus.innerHTML = 'Opening <a href="' + target + '">' + target + '</a>…';
+    location.replace(target);
+  })
+  .catch(function () {
+    liveStatus.textContent = 'The live stats server is offline right now. Try again later.';
+  });
+</script>
+</body></html>

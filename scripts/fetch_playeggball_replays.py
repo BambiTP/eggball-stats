@@ -1,6 +1,7 @@
 """Download every ranked replay listed on playeggball.com.
 
-Walks /replays/data?kind=ranked page by page (25 games a page, newest first) until a page comes back empty,
+Walks /replays/data?kind=ranked page by page (25 games a page, newest first) until a page comes back empty
+or has no game that games.json doesn't already have,
 then downloads each game's file from /replays/file/<id>?save=1 and stores it gzipped.
 Single-threaded, waits GAP seconds between downloads, stops on rate-limit or server errors.
 Resumable: games already saved are skipped, so re-running only fetches new ones.
@@ -28,7 +29,10 @@ def get(path, **params):
 
 os.makedirs(os.path.join(OUT, "replays"), exist_ok=True)
 
-# 1. list every game
+index_path = os.path.join(OUT, "games.json")
+known = {g["id"] for g in json.load(open(index_path))} if os.path.exists(index_path) else set()
+
+# 1. list games, newest first, until a page has nothing new (or the list runs out)
 games = {}
 page = 0
 while True:
@@ -41,10 +45,11 @@ while True:
     for g in rows:
         games.setdefault(g["id"], g)  # new games arriving mid-walk push old ones down a page: dedupe
     print(f"page {page}: {len(games)} games so far", flush=True)
+    if all(g["id"] in known for g in rows):
+        break
     page += 1
     time.sleep(PAGE_GAP)
 
-index_path = os.path.join(OUT, "games.json")
 old = json.load(open(index_path)) if os.path.exists(index_path) else []
 merged = {g["id"]: g for g in old}
 merged.update(games)

@@ -72,7 +72,7 @@ td a { cursor: pointer; color: #06c; }
 #page-tabs a { display: inline-block; padding: 6px 14px; border: 1px solid #999; border-bottom: none; text-decoration: none; color: #06c; }
 #page-tabs a.current-tab { background: #ddd; color: #000; font-weight: bold; }
 </style></head><body>
-<nav id="page-tabs"><a href="index.html" class="current-tab">With and Against</a> <a href="scores.html">Final scores: TPM vs playeggball</a></nav>
+<nav id="page-tabs"><a href="index.html" class="current-tab">With and Against</a> <a href="scores.html">Final scores: TPM vs playeggball</a> __EXTRA_TABS__</nav>
 <h1>Eggball Ranked: With and Against</h1>
 <p id="about"></p>
 <div id="filters">
@@ -231,5 +231,7 @@ show();
 </script></body></html>
 """
 out = os.path.join(DIR, "with_against.html")
+# EGGBALL_EXTRA_TABS: more tab links (the live site adds Games and Players)
+html = html.replace("__EXTRA_TABS__", os.environ.get("EGGBALL_EXTRA_TABS", ""))
 open(out, "w").write(html.replace("__DATA__", json.dumps(data, separators=(",", ":"))))
 print(f"{out}: {len(names)} players, {len(games)} games")

@@ -4,7 +4,10 @@ import json, math, statistics as st, collections, datetime, html
 
 TPM_FILE = '/home/metjr/tagpro-analytics/data/tpm_eggball_matches.json'
 PE_FILE = '/home/metjr/tagpro-analytics/data/playeggball/games.json'
-OUT = '/home/metjr/eggball-stats/scores.html'
+import os, sys
+OUT = sys.argv[1] if len(sys.argv) > 1 else '/home/metjr/eggball-stats/scores.html'
+# more tab links (the live site adds Games and Players)
+EXTRA_TABS = os.environ.get('EGGBALL_EXTRA_TABS', '')
 
 tpm_all = json.load(open(TPM_FILE))
 tpm_games = []  # (score a, score b, minutes)
@@ -111,7 +114,7 @@ th {{ background: #eee; }}
 #page-tabs a {{ display: inline-block; padding: 6px 14px; border: 1px solid #999; border-bottom: none; text-decoration: none; color: #06c; }}
 #page-tabs a.current-tab {{ background: #ddd; color: #000; font-weight: bold; }}
 </style></head><body>
-<nav id="page-tabs"><a href="index.html">With and Against</a> <a href="scores.html" class="current-tab">Final scores: TPM vs playeggball</a></nav>
+<nav id="page-tabs"><a href="index.html">With and Against</a> <a href="scores.html" class="current-tab">Final scores: TPM vs playeggball</a> {EXTRA_TABS}</nav>
 
 <h1>Eggball final scores: TPM vs playeggball</h1>
 
