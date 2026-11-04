@@ -22,4 +22,4 @@ game has been played for an hour it only runs every 30 minutes):
 
 `live-server.py` serves the pages; `live-tunnel.py` runs the tunnel and writes its address to the gist.
 
-`archive/` has saved copies of With and Against and Final scores from November 2, 2026, linked when the live site is offline.
+Since November 4, 2026 the stats are password protected ("Password protected until unbanned"). Replays and stats are still collected. The live server only answers with the password, logs every password try and every page viewed, and shows who got in on a report page on the home computer's private network. The November 2 saved copies (`archive/`) were taken off this site.
